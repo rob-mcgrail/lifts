@@ -15,9 +15,10 @@ deload 10% after three misses. This one doesn't, and shouldn't grow one.
 
 Instead, sessions are **queued ahead with explicit weights, sets and reps**. What
 the next weight should be is a planning decision, made when a session is queued —
-by hand on the Queue tab, or by a model with access to the history. The app's job
-is to execute the queued session, record what actually happened, and keep the
-queue in order.
+through the API, usually by a model with access to the history. The app's job is
+to execute the queued session, record what actually happened, and keep the queue
+in order. The Queue tab is read-and-remove only; there is deliberately no
+planning form in the app.
 
 Consequences worth remembering before "helpfully" adding things back:
 
@@ -93,7 +94,7 @@ case.
 
 `src/plates.ts` holds the gym's actual bar and plates as a hardcoded `LOADOUT`,
 with `perSide` counts (how many go on one side — how you count them at the rack).
-Current set tops out at 135kg and can express every 0.5kg step from 20kg up.
+Current set tops out at 175kg and can express every 0.5kg step from 20kg up.
 
 The solver is exact, not greedy. Greedy fill is wrong with finite plate counts:
 it takes a large plate, strands the remainder, and reports a shortfall a
