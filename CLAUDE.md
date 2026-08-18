@@ -72,9 +72,19 @@ no write queue in here:
 `applySessionState` only touches rows that actually belong to the session, so a
 stale or malformed payload can't reach into another session's history.
 
-**Local state wins on load.** If localStorage has a copy of the session, it is by
-definition newer than whatever the server last heard and may hold sets that were
-never pushed. The server copy is only adopted when there's nothing local.
+**Local state wins on load — but only after it's been identified.** A cached copy
+is stamped with a fingerprint of `id:created_at`, and is only allowed to push
+once that matches the server's copy of the same id. Ids are reused whenever the
+database is rebuilt or restored from backup, and a cache keyed on id alone will
+cheerfully flush one session's sets over an unrelated session that inherited the
+number — this actually happened during development and silently rewrote a
+completed session's weights. On mismatch the cache is dropped and the server copy
+adopted. When the validating fetch fails (offline), the cache is trusted, since
+mid-session-with-no-signal is overwhelmingly the likelier explanation.
+
+Defence in depth on the server: `applySessionState` refuses any change to a
+session that is already `done`. Finished sessions are history and are not
+rewritable through the sync path.
 
 Never make a tap await the network. Bad wifi is the normal case, not the edge
 case.
@@ -146,6 +156,25 @@ the test doesn't need `node_modules` — `tests/plates.test.ts` imports only
 The HTTP API is the real interface — the web app is one client of it, and a
 model or CLI is another. Keep it complete enough to drive the whole app.
 
+**`API.md` is the agent-facing guide** to this surface. It is the document an
+agent reads before driving the API with curl, and it documents behaviour, not
+just routes (loadable-weight rules, the lifecycle, what not to write to). When
+you change an endpoint or a constraint, update `API.md` in the same change —
+a stale guide is worse than none, because an agent will act on it.
+
+### Read endpoints answer in JSON or markdown
+
+`?format=md` (or `Accept: text/markdown`) renders any read endpoint as markdown
+tables; JSON stays the default so the web app is unaffected. Renderers live in
+`src/markdown.ts` and are presentation only — no reads, no logic.
+
+This exists because agents drive this API over curl, and a nested session tree
+costs a lot of tokens to say very little. Any new read endpoint should get a
+renderer. Watch out for one trap: `.filter(Boolean)` over the section array
+strips the deliberate empty strings that separate a heading from its table, and
+markdown needs that blank line — use the `join()` helper, which only drops
+`null`.
+
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/health` | |
@@ -154,6 +183,7 @@ model or CLI is another. Keep it complete enough to drive the whole app.
 | GET | `/api/today` | active session, else next queued |
 | GET | `/api/queue` | planned sessions in order |
 | GET | `/api/history?limit=` | completed sessions, with volume |
+| GET | `/api/log?exercise=&from=&to=&limit=` | flat set-level log — the analysis view |
 | GET | `/api/sessions/:id` | |
 | POST | `/api/sessions` | queue a session with explicit weights |
 | PATCH | `/api/sessions/:id` | edit a **planned** session only (409 once started) |

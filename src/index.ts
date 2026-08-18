@@ -4,7 +4,28 @@ import { serveStatic } from "hono/bun";
 import { existsSync } from "fs";
 import indexHtml from "../web/index.html";
 import * as db from "./db";
+import * as md from "./markdown";
 import { LOADOUT, estimateOneRepMax, minIncrement, platesFor, roundToLoadable } from "./plates";
+
+type Ctx = Parameters<Parameters<typeof app.get>[1]>[0];
+
+/**
+ * Read endpoints answer in JSON or markdown. Agents driving this over curl want
+ * tables — far fewer tokens than a nested session tree, and readable without
+ * parsing. Opt in with `?format=md` or `Accept: text/markdown`; JSON stays the
+ * default so the web app is unaffected.
+ */
+function wantsMarkdown(c: Ctx): boolean {
+  const q = c.req.query("format");
+  if (q === "md" || q === "markdown") return true;
+  if (q === "json") return false;
+  return (c.req.header("Accept") ?? "").includes("text/markdown");
+}
+
+function respond<T>(c: Ctx, data: T, render: (d: T) => string) {
+  if (!wantsMarkdown(c)) return c.json(data);
+  return c.text(render(data), 200, { "Content-Type": "text/markdown; charset=utf-8" });
+}
 
 const app = new Hono();
 
@@ -80,42 +101,61 @@ function parseExercises(raw: unknown): ParsedExercises {
 app.get("/api/health", (c) => c.json({ ok: true, service: "lifts" }));
 
 // The physical constraints, so a planner can propose weights that exist.
-app.get("/api/loadout", (c) =>
-  c.json({
-    bar: LOADOUT.bar,
-    plates: LOADOUT.plates,
-    min_increment: minIncrement(),
-    max_loadable: roundToLoadable(10_000),
-  }),
-);
+const loadoutPayload = () => ({
+  bar: LOADOUT.bar,
+  plates: LOADOUT.plates,
+  min_increment: minIncrement(),
+  max_loadable: roundToLoadable(10_000),
+});
 
-app.get("/api/exercises", (c) => c.json(db.listExercises()));
+app.get("/api/loadout", (c) => respond(c, loadoutPayload(), md.loadout));
+
+app.get("/api/exercises", (c) => respond(c, db.listExercises(), md.exercises));
 
 // --- today ---
 
 // The one screen that matters: whatever you should be doing right now.
 app.get("/api/today", (c) => {
   const active = db.activeSession();
-  if (active) return c.json({ state: "in_progress" as const, session: decorate(active) });
+  if (active) return respond(c, { state: "in_progress" as const, session: decorate(active) }, md.today);
 
   const next = db.nextPlanned();
-  if (!next) return c.json({ state: "empty" as const, queued: 0 });
+  if (!next) return respond(c, { state: "empty" as const, queued: 0 }, md.today);
 
-  return c.json({
-    state: "ready" as const,
-    session: decorate(next),
-    queued: db.listQueue().length,
-    last: db.listHistory(1)[0] ?? null,
-  });
+  return respond(
+    c,
+    {
+      state: "ready" as const,
+      session: decorate(next),
+      queued: db.listQueue().length,
+      last: db.listHistory(1)[0] ?? null,
+    },
+    md.today,
+  );
 });
 
 // --- queue & sessions ---
 
-app.get("/api/queue", (c) => c.json(db.listQueue().map(decorate)));
+app.get("/api/queue", (c) => respond(c, db.listQueue().map(decorate), md.queue));
 
 app.get("/api/history", (c) => {
   const limit = Math.min(Number(c.req.query("limit")) || 50, 500);
-  return c.json(db.listHistory(limit).map((s) => ({ ...decorate(s), volume: s.volume })));
+  const data = db.listHistory(limit).map((s) => ({ ...decorate(s), volume: s.volume }));
+  return respond(c, data, md.history);
+});
+
+/**
+ * Every logged set, flat — one row per set. The analysis view: filter by
+ * movement or date range and it drops straight into a table or dataframe.
+ */
+app.get("/api/log", (c) => {
+  const data = db.loggedSets({
+    exercise: c.req.query("exercise") || undefined,
+    from: c.req.query("from") || undefined,
+    to: c.req.query("to") || undefined,
+    limit: Number(c.req.query("limit")) || undefined,
+  });
+  return respond(c, data, md.log);
 });
 
 app.get("/api/sessions/:id", (c) => {
@@ -123,7 +163,8 @@ app.get("/api/sessions/:id", (c) => {
   if (id === null) return c.json({ error: "Bad id" }, 400);
   const s = db.getSession(id);
   if (!s) return c.json({ error: "Not found" }, 404);
-  return c.json(decorate(s));
+  const decorated = decorate(s);
+  return respond(c, decorated, (d) => (d.status === "planned" ? md.plannedSession(d) : md.loggedSession(d)));
 });
 
 // Queue a session with explicit weights. This is the endpoint a planner drives.
@@ -292,22 +333,27 @@ app.patch("/api/session-exercises/:id/weight", async (c) => {
 // --- progress ---
 
 app.get("/api/progress/:slug", (c) => {
-  const history = db.exerciseHistory(c.req.param("slug"));
-  return c.json(
-    history.map((h) => ({ ...h, est_1rm: estimateOneRepMax(h.weight, Math.max(0, ...h.reps.map((r) => r ?? 0))) })),
-  );
+  const slug = c.req.param("slug");
+  const data = db
+    .exerciseHistory(slug)
+    .map((h) => ({ ...h, est_1rm: estimateOneRepMax(h.weight, Math.max(0, ...h.reps.map((r) => r ?? 0))) }));
+  return respond(c, data, (d) => md.progress(slug, d));
 });
 
 /** Everything a planner needs in one call: what's queued, what you've been
  *  lifting lately, and what the bar can physically be loaded to. */
 app.get("/api/context", (c) =>
-  c.json({
-    loadout: { bar: LOADOUT.bar, plates: LOADOUT.plates, min_increment: minIncrement(), max_loadable: roundToLoadable(10_000) },
-    exercises: db.listExercises(),
-    queue: db.listQueue(),
-    recent: db.recentPerExercise(5),
-    history: db.listHistory(10),
-  }),
+  respond(
+    c,
+    {
+      loadout: loadoutPayload(),
+      exercises: db.listExercises(),
+      queue: db.listQueue().map(decorate),
+      recent: db.recentPerExercise(5),
+      history: db.listHistory(10).map((s) => ({ ...decorate(s), volume: s.volume })),
+    },
+    md.context,
+  ),
 );
 
 // ============================================================

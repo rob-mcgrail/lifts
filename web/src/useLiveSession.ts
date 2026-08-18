@@ -7,12 +7,25 @@ const KEY = (id: number) => `lifts.session.${id}`;
 const DEBOUNCE_MS = 900;
 const HEARTBEAT_MS = 15_000;
 
-type Stored = { session: Session; dirtyAt: number };
+type Stored = { session: Session; dirtyAt: number; fingerprint: string };
+
+/**
+ * Identifies the *server-side* session a cached copy belongs to, not just its
+ * id. Ids are reused whenever the database is rebuilt or restored, and a cache
+ * keyed on id alone will happily flush one session's sets over an unrelated
+ * session that happens to have inherited the number. `created_at` is assigned
+ * server-side at insert and never changes, so id + created_at pins it.
+ */
+function fingerprint(s: Session): string {
+  return `${s.id}:${s.created_at}`;
+}
 
 function load(id: number): Stored | null {
   try {
     const raw = localStorage.getItem(KEY(id));
-    return raw ? (JSON.parse(raw) as Stored) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Stored;
+    return parsed?.session && parsed.fingerprint ? parsed : null;
   } catch {
     return null;
   }
@@ -20,9 +33,20 @@ function load(id: number): Stored | null {
 
 function save(id: number, session: Session, dirtyAt: number) {
   try {
-    localStorage.setItem(KEY(id), JSON.stringify({ session, dirtyAt } satisfies Stored));
+    localStorage.setItem(
+      KEY(id),
+      JSON.stringify({ session, dirtyAt, fingerprint: fingerprint(session) } satisfies Stored),
+    );
   } catch {
     /* storage full or blocked — the in-memory copy still works for this session */
+  }
+}
+
+function drop(id: number) {
+  try {
+    localStorage.removeItem(KEY(id));
+  } catch {
+    /* ignore */
   }
 }
 
@@ -108,29 +132,53 @@ export function useLiveSession(id: number) {
     [flush],
   );
 
-  // Initial load. Local state wins when we have it — it is by definition newer
-  // than whatever the server last heard, and may hold sets never pushed.
+  // Initial load.
+  //
+  // Local state wins over the server's copy — it is by definition newer and may
+  // hold sets that were never pushed. But it only wins once we've confirmed it
+  // describes the *same* session: a cache left behind by a rebuilt or restored
+  // database can carry the same id as a completely different session, and
+  // flushing it would overwrite real history. So the cache is shown immediately
+  // (offline has to work) but is not allowed to push until it's been matched
+  // against the server, and is discarded outright if it doesn't match.
   useEffect(() => {
     let cancelled = false;
     const cached = load(id);
-    if (cached) {
-      setSession(cached.session);
-      dirtyRef.current = true;
-      void flush();
-    }
+    if (cached) setSession(cached.session);
+
     fetch(`/api/sessions/${id}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))))
       .then((fresh: Session) => {
         if (cancelled) return;
-        // Only adopt the server's copy if we have nothing local to protect.
-        if (!load(id)) {
+        if (!cached) {
           setSession(fresh);
           save(id, fresh, 0);
+          return;
+        }
+        if (cached.fingerprint === fingerprint(fresh)) {
+          // Same session — the local copy is ahead, so push what it holds.
+          dirtyRef.current = true;
+          void flush();
+        } else {
+          // Same id, different session. The cache is from another database
+          // generation and must not reach the server.
+          drop(id);
+          setSession(fresh);
+          save(id, fresh, 0);
+          setError(null);
         }
       })
       .catch((e: Error) => {
-        if (!cancelled && !cached) setError(e.message);
+        if (cancelled) return;
+        if (cached) {
+          // Can't validate while offline. The overwhelmingly likely case is that
+          // the cache is genuine and mid-session, so let it sync when we're back.
+          dirtyRef.current = true;
+        } else {
+          setError(e.message);
+        }
       });
+
     return () => {
       cancelled = true;
     };
@@ -172,11 +220,7 @@ export function useLiveSession(id: number) {
     await new Promise((r) => setTimeout(r, 0));
     dirtyRef.current = true;
     await flush();
-    try {
-      localStorage.removeItem(KEY(id));
-    } catch {
-      /* ignore */
-    }
+    drop(id);
   }, [flush, id, mutate]);
 
   return { session, sync, error, mutate, flush, finish };

@@ -376,7 +376,11 @@ export function applySessionState(
 ): Session | null {
   const session = getSession(id);
   if (!session) return null;
-  if (session.status === "done" && state.status !== "done") return session;
+  // A finished session is history, and history is not rewritable by a sync
+  // push. Without this a stale client cache can silently overwrite a completed
+  // session's weights and reps — edit a finished session deliberately, via its
+  // own endpoints, or not at all.
+  if (session.status === "done") return session;
 
   const ownExercises = new Map(session.exercises.map((e) => [e.id, e]));
 
@@ -450,6 +454,60 @@ export function exerciseHistory(slug: string): {
     target_reps: r.target_reps,
     reps: setQ.all(r.se_id).map((x) => x.reps),
   }));
+}
+
+export type LoggedSet = {
+  date: string;
+  session_id: number;
+  session_name: string;
+  exercise: string;
+  exercise_name: string;
+  kind: string;
+  set_idx: number;
+  weight: number;
+  target_reps: number;
+  reps: number | null;
+};
+
+/**
+ * Every logged set, flat and filterable — one row per set rather than a nested
+ * session tree. This is the shape you want for analysis: it joins straight into
+ * a table, a CSV or a dataframe without walking anything.
+ */
+export function loggedSets(opts: { exercise?: string; from?: string; to?: string; limit?: number } = {}): LoggedSet[] {
+  const where: string[] = ["s.status = 'done'", "st.reps IS NOT NULL"];
+  const params: (string | number)[] = [];
+  if (opts.exercise) {
+    where.push("e.slug = ?");
+    params.push(opts.exercise);
+  }
+  if (opts.from) {
+    where.push("COALESCE(s.finished_at, s.started_at) >= ?");
+    params.push(opts.from);
+  }
+  if (opts.to) {
+    where.push("COALESCE(s.finished_at, s.started_at) <= ?");
+    params.push(opts.to);
+  }
+  params.push(Math.min(opts.limit ?? 1000, 10_000));
+
+  return db
+    .query<LoggedSet, (string | number)[]>(
+      `SELECT COALESCE(s.finished_at, s.started_at) AS date,
+              s.id AS session_id, s.name AS session_name,
+              e.slug AS exercise, e.name AS exercise_name, e.kind,
+              st.idx AS set_idx,
+              COALESCE(st.weight, se.target_weight) AS weight,
+              se.target_reps, st.reps
+         FROM sets st
+         JOIN session_exercises se ON se.id = st.session_exercise_id
+         JOIN sessions s ON s.id = se.session_id
+         JOIN exercises e ON e.id = se.exercise_id
+        WHERE ${where.join(" AND ")}
+        ORDER BY date DESC, se.position, st.idx
+        LIMIT ?`,
+    )
+    .all(...params);
 }
 
 /** Most recent completed work per movement — the context the planner needs. */
