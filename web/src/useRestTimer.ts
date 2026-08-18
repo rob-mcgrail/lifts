@@ -184,8 +184,25 @@ const END_CHORDS = [
   [48, 55, 64, 71], // Cmaj7
 ];
 
-export function playCue(ctx: AudioContext, which: "ready" | "end", voice: Voice) {
+/**
+ * How far the whole rest is transposed, in semitones. Rolled once when a rest
+ * starts and reused for both cues, so the ready chord and the ii–V–I that
+ * follows it are in the same key — randomising per cue would have them
+ * disagree, which sounds like a mistake rather than variety.
+ *
+ * Range is deliberately narrow. Rhodes gets muddy low and brittle high, and the
+ * point is a bit of colour between sessions, not a different instrument.
+ */
+export function randomKey(): number {
+  return Math.floor(Math.random() * 10) - 4; // -4..+5 semitones
+}
+
+const NOTE_NAMES = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"];
+export const keyName = (transpose: number) => NOTE_NAMES[(((transpose % 12) + 12) % 12)]!;
+
+export function playCue(ctx: AudioContext, which: "ready" | "end", voice: Voice, transpose = 0) {
   const t = ctx.currentTime + 0.02;
+  const shift = Math.pow(2, transpose / 12);
 
   if (voice === "rhodes") {
     // A bus so overlapping notes don't clip — with a long ring and a slow roll
@@ -199,26 +216,29 @@ export function playCue(ctx: AudioContext, which: "ready" | "end", voice: Voice)
     bus.connect(tone);
     tone.connect(ctx.destination);
 
+    // Transposition is applied in semitones, so the voicing stays intact.
+    const up = (chord: number[]) => chord.map((n) => n + transpose);
+
     if (which === "ready") {
       // Slow roll and a long tail: this one is permission, not an alert, so it
       // gets to unfold and ring out.
-      rhodesChord(ctx, bus, t, READY_CHORD, 0.3, 5.5, 0.11);
+      rhodesChord(ctx, bus, t, up(READY_CHORD), 0.3, 5.5, 0.11);
     } else {
       // The ii–V–I moves, so its chords are tighter — a slow roll on each would
       // smear the progression. The resolution still gets a long ring.
       END_CHORDS.forEach((chord, i) =>
-        rhodesChord(ctx, bus, t + i * 0.34, chord, 0.28, i === 2 ? 5.5 : 1.1, 0.035),
+        rhodesChord(ctx, bus, t + i * 0.34, up(chord), 0.28, i === 2 ? 5.5 : 1.1, 0.035),
       );
     }
     return;
   }
 
   if (which === "ready") {
-    strike(ctx, t, 587.33, voice); // D5
+    strike(ctx, t, 587.33 * shift, voice); // D5, transposed
     return;
   }
   const gap = voice === "beep" ? 0.2 : 0.26;
-  [587.33, 739.99, 880.0].forEach((f, i) => strike(ctx, t + i * gap, f, voice, 0.24));
+  [587.33, 739.99, 880.0].forEach((f, i) => strike(ctx, t + i * gap, f * shift, voice, 0.24));
 }
 
 /**
@@ -245,6 +265,8 @@ export function useRestTimer(marks: RestMarks, voice: Voice = "rhodes") {
   const wakeRef = useRef<WakeLockSentinel | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
+  // The key this rest is in. Rolled at start() so both cues agree.
+  const keyRef = useRef(0);
 
   const marksRef = useRef(marks);
   marksRef.current = marks;
@@ -308,7 +330,7 @@ export function useRestTimer(marks: RestMarks, voice: Voice = "rhodes") {
       try {
         const ctx = (ctxRef.current ??= new AudioContext());
         void ctx.resume();
-        playCue(ctx, which, voice);
+        playCue(ctx, which, voice, keyRef.current);
       } catch {
         /* no audio available — the vibration and the colour still land */
       }
@@ -318,6 +340,7 @@ export function useRestTimer(marks: RestMarks, voice: Voice = "rhodes") {
 
   const start = useCallback(() => {
     firedRef.current = new Set();
+    keyRef.current = randomKey();
     setStartedAt(Date.now());
     setNow(Date.now());
     void acquireKeepAwake();

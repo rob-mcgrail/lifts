@@ -62,13 +62,26 @@ export default function Workout() {
     [mutate],
   );
 
-  /** A logged set starts the rest; clearing one cancels it. */
+  /**
+   * The rest belongs to the set that started it. Every press on *that* set is
+   * ignored — adding a rep, taking one off, clearing it and putting it back —
+   * because it's all bookkeeping about a set you already finished, and you've
+   * been resting the whole time. Winding the clock back to zero because you
+   * corrected a number is the wrong answer.
+   *
+   * A press on a *different* set is a new set finished, so it starts a fresh
+   * rest. Clearing never starts one.
+   *
+   * The owning set is remembered after the rest ends too, so fixing a count
+   * once the timer has stopped doesn't start a phantom rest.
+   */
+  const restingSet = useRef<number | null>(null);
+
   const restAfter = useCallback(
-    (ex: SessionExercise, reps: number | null) => {
-      if (reps === null) {
-        timer.stop();
-        return;
-      }
+    (ex: SessionExercise, setId: number, after: number | null) => {
+      if (after === null) return;
+      if (restingSet.current === setId) return;
+      restingSet.current = setId;
       setMarks(ex.rest ?? FALLBACK_MARKS);
       timer.start();
     },
@@ -152,7 +165,7 @@ export default function Workout() {
                   reps={s.reps}
                   target={e.target_reps}
                   onSet={(reps) => setReps(s.id, reps)}
-                  onSettled={(reps) => restAfter(e, reps)}
+                  onSettled={(reps) => restAfter(e, s.id, reps)}
                 />
               ))}
             </div>
