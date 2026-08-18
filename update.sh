@@ -30,10 +30,18 @@ say() { printf '\n\033[1m▸ %s\033[0m\n' "$*"; }
 warn() { printf '\033[33m  ! %s\033[0m\n' "$*"; }
 die() { printf '\033[31m  ✗ %s\033[0m\n' "$*" >&2; exit 1; }
 
-# The Dockerfile needs the Cloudflare WARP cert as a build secret, or every
-# package fetch dies with SELF_SIGNED_CERT_IN_CHAIN.
-export CLOUDFLARE_CERT="${CLOUDFLARE_CERT:-$HOME/.cloudflare/cert.pem}"
-[ -f "$CLOUDFLARE_CERT" ] || warn "no WARP cert at $CLOUDFLARE_CERT — the build will fail if it needs the network"
+# On a machine behind Cloudflare WARP the build needs the WARP cert as a secret,
+# or every package fetch dies with SELF_SIGNED_CERT_IN_CHAIN. Machines that
+# aren't behind WARP — the server included — have no such cert and don't need
+# one, so point the secret at /dev/null and let the Dockerfile's `if [ -f ... ]`
+# skip it. Exporting a path that doesn't exist makes compose fail outright, so
+# only set this when the file is really there.
+CERT_PATH="${CLOUDFLARE_CERT:-$HOME/.cloudflare/cert.pem}"
+if [ -f "$CERT_PATH" ]; then
+  export CLOUDFLARE_CERT="$CERT_PATH"
+else
+  export CLOUDFLARE_CERT=/dev/null
+fi
 
 # Mirrors the _compose helper in .shell-init.sh: inject secrets from 1Password
 # when there's a .env.secrets to read, otherwise plain compose.
