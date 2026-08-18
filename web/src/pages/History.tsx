@@ -106,7 +106,10 @@ export default function History() {
             <tbody>
               {s.exercises.map((e) => (
                 <tr key={e.id}>
-                  <td>{e.name}</td>
+                  <td>
+                    {e.name}
+                    {e.pb && <span className="pb" title="Personal best" aria-label="personal best">🐷</span>}
+                  </td>
                   {/* An unloaded bodyweight movement isn't "0kg" — that reads
                       like a data error rather than a set of pull-ups. */}
                   <td className="num muted">

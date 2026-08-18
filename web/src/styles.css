@@ -484,3 +484,17 @@ label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 5px
 /* Days that haven't happened yet are dimmer, so an empty week doesn't look
    like a week of missed sessions. */
 .day.ahead { opacity: 0.35; }
+
+/* --- personal best ---
+   A gold pig. The emoji is pink, so it's rotated round the wheel and warmed,
+   with a glow so it reads as a medal rather than as decoration. */
+
+.pb {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 0.85em;
+  filter: hue-rotate(28deg) saturate(2.2) brightness(1.12)
+          drop-shadow(0 0 4px rgba(251, 191, 36, 0.65));
+}
+
+.pb-e1rm { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }

@@ -7,7 +7,7 @@
 //
 // Every renderer here is presentation only — no reads, no business logic.
 
-import type { LoggedSet, Session, SessionExerciseDetail } from "./db";
+import type { Best, LoggedSet, Session, SessionExerciseDetail } from "./db";
 import type { PlateSolution } from "./plates";
 
 type Cell = string | number | null | undefined;
@@ -34,7 +34,7 @@ const plateCell = (p: PlateSolution | null | undefined): string => {
   return p.shortfall > 0 ? `${base} (${kg(p.shortfall)} short)` : base;
 };
 
-type Decorated = SessionExerciseDetail & { plates?: PlateSolution | null };
+type Decorated = SessionExerciseDetail & { plates?: PlateSolution | null; pb?: boolean };
 type DecoratedSession = Omit<Session, "exercises"> & { exercises: Decorated[] };
 
 const repsCell = (e: Decorated): string => e.sets.map((s) => (s.reps === null ? "·" : s.reps)).join(" ");
@@ -137,7 +137,7 @@ export function history(sessions: (DecoratedSession & { volume: number })[]): st
         day(s.finished_at ?? s.started_at),
         s.id,
         s.name || "—",
-        e.name,
+        e.pb ? `${e.name} 🐷` : e.name,
         weightCell(e),
         targetCell(e),
         repsCell(e),
@@ -204,6 +204,21 @@ export function log(sets: LoggedSet[]): string {
     "",
     table(["Date", "Session", "Exercise", "Set", "Weight", "Target", "Reps", "Result", "Volume"], rows),
   ].join("\n");
+}
+
+export function bests(list: Best[]): string {
+  if (list.length === 0) return "# Personal bests\n\nNone recorded.";
+  return join([
+    "# Personal bests",
+    "",
+    "_Estimated one-rep max, Epley. A baseline predates the app; a logged best",
+    "was actually lifted here._",
+    "",
+    table(
+      ["Movement", "Best set", "e1RM", "When", "Source"],
+      list.map((b) => [b.name, `${b.reps} × ${kg(b.weight)}`, kg(b.e1rm), b.date ? day(b.date) : "—", b.source]),
+    ),
+  ]);
 }
 
 export function settings(s: Record<string, string>): string {

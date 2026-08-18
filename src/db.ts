@@ -178,6 +178,161 @@ export function setSetting(key: string, value: string): void {
   );
 }
 
+// --- Personal bests ---
+//
+// Only *baselines* are stored — what you'd already lifted before the app
+// existed, which it has no other way of knowing. Everything after that is
+// derived from the logged sets, so a best can never drift out of step with the
+// history that produced it, and correcting a mis-logged set re-derives it.
+
+db.run(`CREATE TABLE IF NOT EXISTS personal_bests (
+  exercise_id INTEGER PRIMARY KEY REFERENCES exercises(id) ON DELETE CASCADE,
+  weight REAL NOT NULL,
+  reps INTEGER NOT NULL,
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)`);
+
+/** Epley. Kept identical to the progress chart's estimate, or the same lift
+ *  would rank differently depending on which screen you were looking at. */
+export function e1rm(weight: number, reps: number): number {
+  if (reps <= 0 || weight <= 0) return 0;
+  if (reps === 1) return weight;
+  return Math.round(weight * (1 + reps / 30) * 100) / 100;
+}
+
+/** Baselines from before the app. Seeded once; editable through the API. */
+const SEED_BESTS: [slug: string, name: string, weight: number, reps: number][] = [
+  ["squat", "Squat", 135, 3],
+  ["bench", "Bench Press", 85.5, 3],
+  ["incline-bench", "Incline Bench Press", 86.5, 3],
+  ["ohp", "Overhead Press", 52.5, 5],
+  ["deadlift", "Deadlift", 160, 5],
+];
+
+export function seedPersonalBests(): void {
+  const n = db.query<{ n: number }, []>(`SELECT COUNT(*) AS n FROM personal_bests`).get()?.n ?? 0;
+  if (n > 0) return;
+  for (const [slug, name, weight, reps] of SEED_BESTS) {
+    const ex = ensureExercise(slug, name, "barbell");
+    db.run(`INSERT INTO personal_bests (exercise_id, weight, reps, note) VALUES (?, ?, ?, ?)`, [
+      ex.id,
+      weight,
+      reps,
+      "before lifts",
+    ]);
+  }
+}
+
+export function setPersonalBest(slug: string, weight: number, reps: number, note?: string): void {
+  const ex = ensureExercise(slug);
+  db.run(
+    `INSERT INTO personal_bests (exercise_id, weight, reps, note) VALUES (?, ?, ?, ?)
+     ON CONFLICT(exercise_id) DO UPDATE
+       SET weight = excluded.weight, reps = excluded.reps, note = excluded.note`,
+    [ex.id, weight, reps, note ?? null],
+  );
+}
+
+export type Best = {
+  slug: string;
+  name: string;
+  weight: number;
+  reps: number;
+  e1rm: number;
+  date: string | null;
+  source: "baseline" | "logged";
+};
+
+export type PbState = {
+  /** Current best per movement, baseline or logged, whichever is higher. */
+  best: Record<string, Best>;
+  /** session_exercise ids whose best set beat everything before it. */
+  pbRows: Set<number>;
+};
+
+/**
+ * Two queries, walked once in chronological order.
+ *
+ * A row counts as a personal best if its best set beat everything that came
+ * *before* it — the baseline plus every earlier session. That's a running
+ * maximum, which is why this is computed in one pass rather than asked per row:
+ * the answer for any given row depends on all its predecessors.
+ */
+export function pbState(): PbState {
+  const baselines = db
+    .query<{ slug: string; name: string; weight: number; reps: number }, []>(
+      `SELECT e.slug, e.name, pb.weight, pb.reps
+         FROM personal_bests pb JOIN exercises e ON e.id = pb.exercise_id`,
+    )
+    .all();
+
+  const best: Record<string, Best> = {};
+  for (const b of baselines) {
+    best[b.slug] = {
+      slug: b.slug,
+      name: b.name,
+      weight: b.weight,
+      reps: b.reps,
+      e1rm: e1rm(b.weight, b.reps),
+      date: null,
+      source: "baseline",
+    };
+  }
+
+  // Every completed set, oldest first, so the running max is built correctly.
+  const rows = db
+    .query<
+      { se_id: number; slug: string; name: string; date: string; weight: number; reps: number },
+      []
+    >(
+      `SELECT se.id AS se_id, e.slug, e.name,
+              COALESCE(s.finished_at, s.started_at) AS date,
+              COALESCE(st.weight, se.target_weight) AS weight, st.reps
+         FROM sets st
+         JOIN session_exercises se ON se.id = st.session_exercise_id
+         JOIN sessions s ON s.id = se.session_id
+         JOIN exercises e ON e.id = se.exercise_id
+        WHERE s.status = 'done' AND st.reps IS NOT NULL AND st.reps > 0
+        ORDER BY date ASC, s.id ASC, se.position, st.idx`,
+    )
+    .all();
+
+  // Collapse to one entry per session_exercise — a row is a PB if *any* of its
+  // sets beat the standing best, and it should be flagged once, not per set.
+  const perRow = new Map<number, { slug: string; name: string; date: string; weight: number; reps: number; e1rm: number }>();
+  for (const r of rows) {
+    const score = e1rm(r.weight, r.reps);
+    const existing = perRow.get(r.se_id);
+    if (!existing || score > existing.e1rm) {
+      perRow.set(r.se_id, { slug: r.slug, name: r.name, date: r.date, weight: r.weight, reps: r.reps, e1rm: score });
+    }
+  }
+
+  const pbRows = new Set<number>();
+  for (const [seId, row] of perRow) {
+    const standing = best[row.slug]?.e1rm ?? 0;
+    if (row.e1rm > standing) {
+      pbRows.add(seId);
+      best[row.slug] = {
+        slug: row.slug,
+        name: row.name,
+        weight: row.weight,
+        reps: row.reps,
+        e1rm: row.e1rm,
+        date: row.date,
+        source: "logged",
+      };
+    }
+  }
+
+  return { best, pbRows };
+}
+
+export function listBests(): Best[] {
+  return Object.values(pbState().best).sort((a, b) => a.name.localeCompare(b.name));
+}
+
 // --- Exercises ---
 
 const DEFAULT_EXERCISES: [string, string][] = [

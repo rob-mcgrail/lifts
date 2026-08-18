@@ -4,17 +4,31 @@ import { Screen } from "./Screen";
 
 type Point = { date: string; weight: number; target_reps: number; reps: (number | null)[]; est_1rm: number };
 
+type Best = {
+  slug: string;
+  name: string;
+  weight: number;
+  reps: number;
+  e1rm: number;
+  date: string | null;
+  source: string;
+};
+
 export default function Progress() {
   const [exercises, setExercises] = useState<{ slug: string; name: string }[]>([]);
   const [slug, setSlug] = useState<string | null>(null);
   const [data, setData] = useState<Point[] | null>(null);
+  const [bests, setBests] = useState<Best[]>([]);
 
   useEffect(() => {
     api.exercises().then((list) => {
       setExercises(list);
       if (list.length) setSlug((s) => s ?? list[0]!.slug);
     });
+    api.bests().then(setBests).catch(() => {});
   }, []);
+
+  const best = bests.find((b) => b.slug === slug);
 
   useEffect(() => {
     if (!slug) return;
@@ -36,6 +50,28 @@ export default function Progress() {
           </button>
         ))}
       </div>
+
+      {best && (
+        <div className="card row">
+          <div>
+            <div className="muted small">Personal best</div>
+            <div className="weight" style={{ fontSize: 24 }}>
+              {best.reps} × {fmtWeight(best.weight)}<span>kg</span>
+            </div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            {/* The comparison the pig is based on: every set is scored by its
+                estimated one-rep max, so a heavy single and a light set of ten
+                are directly comparable. */}
+            <div className="pb-e1rm">
+              <span className="pb">🐷</span> {fmtWeight(best.e1rm)}kg
+            </div>
+            <div className="muted small">
+              e1RM · {best.source === "baseline" ? "before lifts" : (best.date ?? "").slice(0, 10)}
+            </div>
+          </div>
+        </div>
+      )}
 
       {!data ? (
         <p className="empty">Loading…</p>

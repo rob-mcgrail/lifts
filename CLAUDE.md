@@ -112,6 +112,25 @@ per-side loads via bounded-knapsack reachability, in integer hundredths of a kg,
 cached per loadout. `tests/plates.test.ts` asserts every solution only uses
 plates actually owned and that the breakdown sums to the weight it claims.
 
+## Personal bests
+
+Only **baselines** are stored — what was lifted before the app existed, seeded
+once in `SEED_BESTS` and editable via `PUT /api/bests/:slug`. Everything after
+that is derived from logged sets by `pbState()`, so a best can never drift from
+the history that produced it and correcting a mis-logged set re-derives it. Do
+not add a denormalised "current best" column.
+
+Every set is scored by Epley e1RM, which is what makes rep ranges comparable —
+`8 × 130` (164.7) outranks `1 × 150` (150.0). A row is flagged `pb` when its
+best set beat everything *before* it, which is a running maximum: the answer for
+any row depends on all its predecessors, so `pbState()` walks the whole history
+in one pass rather than answering per row. Compute it once per request and pass
+it into `decorate()` — `/api/history` decorates fifty sessions and would
+otherwise redo that walk fifty times.
+
+`e1rm()` in `db.ts` and `estimateOneRepMax()` in `plates.ts` must agree, or the
+same lift ranks differently depending on which screen you're looking at.
+
 ## Bodyweight movements
 
 `kind === "bodyweight"` inverts the set interaction, and that asymmetry is the

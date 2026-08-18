@@ -26,6 +26,8 @@ export type SessionExercise = {
   /** What you managed last time. Only populated for bodyweight movements, and
    *  only on the screens that show it. */
   previous: { date: string; reps: (number | null)[] } | null;
+  /** This row's best set beat every earlier one, and the baseline. */
+  pb: boolean;
   sets: SetRow[];
   plates: Plates | null;
 };
@@ -105,6 +107,10 @@ export const api = {
     req<Session>(`/sessions/${id}/state`, { method: "PUT", body: JSON.stringify(state) }),
 
   settings: () => req<Record<string, string>>("/settings"),
+  bests: () =>
+    req<{ slug: string; name: string; weight: number; reps: number; e1rm: number; date: string | null; source: string }[]>(
+      "/bests",
+    ),
 
   progress: (slug: string) =>
     req<{ session_id: number; date: string; weight: number; target_reps: number; reps: (number | null)[]; est_1rm: number }[]>(

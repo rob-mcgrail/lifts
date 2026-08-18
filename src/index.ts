@@ -39,6 +39,7 @@ app.onError((err, c) => {
 });
 
 db.seedExercises();
+db.seedPersonalBests();
 
 // --- helpers ---
 
@@ -55,12 +56,14 @@ db.seedExercises();
  */
 function decorate(
   s: db.Session,
-  opts: { withPrevious?: boolean } = {},
+  opts: { withPrevious?: boolean; pb?: db.PbState } = {},
 ): db.Session & {
   exercises: (db.SessionExerciseDetail & {
     plates: ReturnType<typeof platesFor> | null;
     rest: { ready: number; end: number };
     previous: { date: string; reps: (number | null)[] } | null;
+    /** This row's best set beat everything before it. */
+    pb: boolean;
   })[];
 } {
   const global = db.getSettings();
@@ -80,6 +83,7 @@ function decorate(
       plates: e.kind === "barbell" ? platesFor(e.target_weight) : null,
       rest: { ready: ready(e), end: end(e) },
       previous: previous[e.slug] ?? null,
+      pb: opts.pb?.pbRows.has(e.id) ?? false,
     })),
   };
 }
@@ -230,8 +234,24 @@ app.get("/api/queue", (c) => respond(c, db.listQueue().map((s) => decorate(s, { 
 
 app.get("/api/history", (c) => {
   const limit = Math.min(Number(c.req.query("limit")) || 50, 500);
-  const data = db.listHistory(limit).map((s) => ({ ...decorate(s), volume: s.volume }));
+  // Computed once for the whole page — it's a running maximum over all history,
+  // so asking per session would redo the same walk fifty times.
+  const pb = db.pbState();
+  const data = db.listHistory(limit).map((s) => ({ ...decorate(s, { pb }), volume: s.volume }));
   return respond(c, data, md.history);
+});
+
+/** Current best per movement — the seeded baseline, or a logged set that beat it. */
+app.get("/api/bests", (c) => respond(c, db.listBests(), md.bests));
+
+app.put("/api/bests/:slug", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const weight = Number(body.weight);
+  const reps = Number(body.reps);
+  if (!Number.isFinite(weight) || weight <= 0) return c.json({ error: "weight must be > 0" }, 400);
+  if (!Number.isInteger(reps) || reps < 1 || reps > 100) return c.json({ error: "reps must be 1-100" }, 400);
+  db.setPersonalBest(c.req.param("slug"), weight, reps, typeof body.note === "string" ? body.note : undefined);
+  return c.json(db.listBests());
 });
 
 /**
@@ -253,7 +273,7 @@ app.get("/api/sessions/:id", (c) => {
   if (id === null) return c.json({ error: "Bad id" }, 400);
   const s = db.getSession(id);
   if (!s) return c.json({ error: "Not found" }, 404);
-  const decorated = decorate(s, { withPrevious: true });
+  const decorated = decorate(s, { withPrevious: true, pb: db.pbState() });
   return respond(c, decorated, (d) => (d.status === "planned" ? md.plannedSession(d) : md.loggedSession(d)));
 });
 

@@ -183,7 +183,10 @@ export default function Workout() {
           <div key={e.id} className="card">
             <div className="row">
               <div>
-                <h2>{e.name}</h2>
+                <h2>
+                  {e.name}
+                  {e.pb && <span className="pb" title="Personal best" aria-label="personal best">🐷</span>}
+                </h2>
                 <div className="muted small">
                   {e.kind === "bodyweight"
                     ? `${e.target_sets} sets`

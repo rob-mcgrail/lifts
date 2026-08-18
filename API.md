@@ -129,6 +129,46 @@ Valid kinds: `barbell` (default), `dumbbell`, `machine`, `bodyweight`, `other`.
 You only need to send `kind` the first time a movement appears; it's remembered.
 Sending it again with a different value corrects the stored value.
 
+### Personal bests, and the golden pig 🐷
+
+Every set is scored by its **estimated one-rep max** (Epley:
+`weight × (1 + reps/30)`, and a true single scores as itself). A row in history
+gets a golden pig when its best set beat *everything that came before it* — the
+stored baseline plus every earlier session.
+
+Scoring by e1RM is the whole point: it makes rep ranges comparable. Against a
+`3 × 135kg` squat baseline (e1RM 148.5):
+
+| Set | e1RM | Best? |
+|---|---|---|
+| 3 × 130kg | 143.0 | no |
+| 5 × 140kg | 163.3 | **yes** — a different rep range entirely |
+| 1 × 150kg | 150.0 | no — beats the baseline, but not the 163.3 already standing |
+| 8 × 130kg | 164.7 | **yes** — light weight, high reps, still a record |
+
+```bash
+curl -s "$LIFTS/api/bests?format=md"
+```
+
+**Only baselines are stored.** They're what was lifted before the app existed,
+which it has no other way of knowing. Everything after that is *derived* from
+the logged sets on read, so a best can never drift out of step with the history
+that produced it — and correcting a mis-logged set re-derives it automatically.
+There is no "best" column to keep up to date, and you should not try to maintain
+one.
+
+Set or correct a baseline with the lift itself, not an e1RM — the estimate is
+computed for you, and the actual sets and reps are the more useful record:
+
+```bash
+curl -s -X PUT "$LIFTS/api/bests/squat" \
+  -H 'Content-Type: application/json' \
+  -d '{"weight": 140, "reps": 3, "note": "before lifts"}'
+```
+
+Each exercise on `/api/history` carries `pb: true` on the row that set a record,
+so you can find them without recomputing the running maximum yourself.
+
 ### Bodyweight movements
 
 `kind: "bodyweight"` changes how the app records a movement, so set it
@@ -377,6 +417,8 @@ Reads accept `?format=md`.
 | GET | `/api/context` | Everything needed to plan, in one call. |
 | GET | `/api/loadout` | Bar, plates, min increment, max loadable. |
 | GET | `/api/exercises` | Movement catalogue. |
+| GET | `/api/bests` | Personal best per movement, baseline or logged. |
+| PUT | `/api/bests/:slug` | Set a baseline (`weight`, `reps`, optional `note`). |
 | GET | `/api/settings` | Global rest defaults. |
 | PATCH | `/api/settings` | Change them. |
 | GET | `/api/today` | Active session, else next queued. |
