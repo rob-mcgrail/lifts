@@ -58,6 +58,43 @@ function strike(ctx: AudioContext, at: number, freq: number, voice: SimpleVoice,
   }
 }
 
+/**
+ * A genuinely silent WAV of real length, for the background keep-alive.
+ *
+ * This is built at runtime rather than inlined as a base64 literal because the
+ * literal that used to be here declared a `data` chunk of **zero bytes**. Set
+ * `loop = true` on a media element with no duration and the browser restarts it
+ * as fast as it can cycle — an unbounded loop inside the media pipeline that
+ * pegged a core for as long as a rest was running. A silent file only works as
+ * a keep-alive if it actually has samples to play.
+ */
+function silentWavUrl(seconds = 1): string {
+  const rate = 8000;
+  const samples = rate * seconds;
+  const size = 44 + samples * 2;
+  const view = new DataView(new ArrayBuffer(size));
+  const ascii = (off: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i));
+  };
+
+  ascii(0, "RIFF");
+  view.setUint32(4, size - 8, true);
+  ascii(8, "WAVE");
+  ascii(12, "fmt ");
+  view.setUint32(16, 16, true); // PCM header length
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true); // byte rate
+  view.setUint16(32, 2, true); // block align
+  view.setUint16(34, 16, true); // bits per sample
+  ascii(36, "data");
+  view.setUint32(40, samples * 2, true); // the part that was zero
+  // Samples are already zero — an ArrayBuffer starts cleared.
+
+  return URL.createObjectURL(new Blob([view.buffer], { type: "audio/wav" }));
+}
+
 const midi = (n: number) => 440 * Math.pow(2, (n - 69) / 12);
 
 /**
@@ -212,10 +249,20 @@ export function useRestTimer(marks: RestMarks, voice: Voice = "rhodes") {
   const marksRef = useRef(marks);
   marksRef.current = marks;
 
+  // Tick once per second, scheduled to land just after `elapsed` actually rolls
+  // over. A fixed 250ms interval re-rendered the whole workout tree four times
+  // a second to update a display that only ever changes once — and drifted, so
+  // the number could visibly stall or skip.
   useEffect(() => {
     if (startedAt === null) return;
-    const t = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(t);
+    let id: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      setNow(Date.now());
+      const intoSecond = (Date.now() - startedAt) % 1000;
+      id = setTimeout(tick, 1000 - intoSecond + 15);
+    };
+    tick();
+    return () => clearTimeout(id);
   }, [startedAt]);
 
   const releaseKeepAwake = useCallback(() => {
@@ -223,6 +270,19 @@ export function useRestTimer(marks: RestMarks, voice: Voice = "rhodes") {
     wakeRef.current = null;
     audioRef.current?.pause();
   }, []);
+
+  // The keep-alive element holds an object URL; drop both on unmount so a long
+  // session doesn't accumulate them.
+  useEffect(
+    () => () => {
+      const a = audioRef.current;
+      if (!a) return;
+      a.pause();
+      URL.revokeObjectURL(a.src);
+      audioRef.current = null;
+    },
+    [],
+  );
 
   const acquireKeepAwake = useCallback(async () => {
     try {
@@ -232,9 +292,7 @@ export function useRestTimer(marks: RestMarks, voice: Voice = "rhodes") {
     }
     try {
       if (!audioRef.current) {
-        const a = new Audio(
-          "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQAAAAA=",
-        );
+        const a = new Audio(silentWavUrl(1));
         a.loop = true;
         a.volume = 0.001;
         audioRef.current = a;
