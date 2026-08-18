@@ -309,6 +309,18 @@ app.post("/api/sessions/:id/start", (c) => {
   return c.json(decorate(s));
 });
 
+/** Back to the queue, unstarted and unlogged. Only an active session. */
+app.post("/api/sessions/:id/reset", (c) => {
+  const id = intParam(c, "id");
+  if (id === null) return c.json({ error: "Bad id" }, 400);
+  const current = db.getSession(id);
+  if (!current) return c.json({ error: "Not found" }, 404);
+  if (current.status === "done") return c.json({ error: "A finished session is history — it can't be reset" }, 409);
+  if (current.status === "planned") return c.json(decorate(current));
+
+  return c.json(decorate(db.resetSession(id)!));
+});
+
 app.post("/api/sessions/:id/finish", (c) => {
   const id = intParam(c, "id");
   if (id === null) return c.json({ error: "Bad id" }, 400);

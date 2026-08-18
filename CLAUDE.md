@@ -189,6 +189,7 @@ markdown needs that blank line — use the `join()` helper, which only drops
 | POST | `/api/sessions` | queue a session with explicit weights |
 | PATCH | `/api/sessions/:id` | edit a **planned** session only (409 once started) |
 | POST | `/api/sessions/:id/start` | |
+| POST | `/api/sessions/:id/reset` | active → planned, clears logged sets |
 | PUT | `/api/sessions/:id/state` | idempotent total-state sync |
 | POST | `/api/sessions/:id/finish` | |
 | DELETE | `/api/sessions/:id` | |

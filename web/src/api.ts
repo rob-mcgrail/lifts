@@ -85,6 +85,7 @@ export const api = {
   session: (id: number) => req<Session>(`/sessions/${id}`),
 
   start: (id: number) => req<Session>(`/sessions/${id}/start`, { method: "POST" }),
+  reset: (id: number) => req<Session>(`/sessions/${id}/reset`, { method: "POST" }),
   remove: (id: number) => req<{ ok: true }>(`/sessions/${id}`, { method: "DELETE" }),
 
   /**

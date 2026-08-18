@@ -29,8 +29,11 @@ const FALLBACK_MARKS = { ready: 90, end: 180 };
 export default function Workout() {
   const { id } = useParams();
   const sessionId = Number(id);
-  const { session, sync, error, mutate, finish } = useLiveSession(sessionId);
+  const { session, sync, error, mutate, finish, abandon } = useLiveSession(sessionId);
   const [done, setDone] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
   // The exercise whose plate loading is being held open, if any.
   const [held, setHeld] = useState<SessionExercise | null>(null);
   // Rest marks for the set most recently logged — a heavy single and a set of
@@ -94,6 +97,27 @@ export default function Workout() {
     await finish();
   }
 
+  /**
+   * Put the session back in the queue, unstarted. This one *does* await the
+   * server before leaving, unlike finishing: the local cache has to be dropped
+   * in step with the reset, and if the request failed we'd otherwise navigate
+   * away having cleared the phone's copy of a session the server still thinks
+   * is live.
+   */
+  async function onReset() {
+    setResetting(true);
+    timer.stop();
+    try {
+      await api.reset(sessionId);
+      abandon(); // drop the local copy only once the server has agreed
+      nav("/", { replace: true });
+    } catch (e) {
+      setResetting(false);
+      setConfirmReset(false);
+      setResetError((e as Error).message);
+    }
+  }
+
   if (!session) {
     return (
       <Screen title="Workout">
@@ -118,10 +142,16 @@ export default function Workout() {
 
   const allLogged = session.exercises.every((e) => e.sets.every((s) => s.reps !== null));
 
+  const loggedCount = session.exercises.reduce(
+    (n, e) => n + e.sets.filter((s) => s.reps !== null).length,
+    0,
+  );
+
   return (
     <>
-      <Screen title={sessionLabel(session)}>
+      <Screen title={sessionLabel(session)} onTitleHold={() => setConfirmReset(true)}>
         <SyncDot state={sync} />
+        {resetError && <p className="err">{resetError}</p>}
 
         {session.exercises.map((e) => (
           <div key={e.id} className="card">
@@ -179,6 +209,33 @@ export default function Workout() {
       </Screen>
 
       {held?.plates && <PlateOverlay exercise={held} />}
+
+      {confirmReset && (
+        <div className="sheet-scrim" onClick={() => !resetting && setConfirmReset(false)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ margin: 0 }}>Not lifting yet?</h2>
+            <p className="muted small">
+              Puts this session back at the top of the queue, unstarted, so you can
+              start it later.
+              {loggedCount > 0 && (
+                <>
+                  {" "}
+                  <span style={{ color: "var(--warn)" }}>
+                    {loggedCount} logged {loggedCount === 1 ? "set" : "sets"} will be cleared
+                  </span>{" "}
+                  — if you actually lifted, use Finish early instead.
+                </>
+              )}
+            </p>
+            <button className="btn danger" onClick={onReset} disabled={resetting}>
+              {resetting ? "Putting it back…" : "Back in the queue"}
+            </button>
+            <button className="btn ghost" style={{ marginTop: 10 }} onClick={() => setConfirmReset(false)} disabled={resetting}>
+              Keep going
+            </button>
+          </div>
+        </div>
+      )}
 
       {timer.running && (
         <div className={`rest ${timer.phase}`}>

@@ -336,6 +336,7 @@ Reads accept `?format=md`.
 | PATCH | `/api/sessions/:id` | Edit a **planned** session. |
 | DELETE | `/api/sessions/:id` | Remove a session. |
 | POST | `/api/sessions/:id/start` | Mark active. |
+| POST | `/api/sessions/:id/reset` | Active → planned. Clears every logged set. |
 | POST | `/api/sessions/:id/finish` | Mark done. |
 | PATCH | `/api/sessions/:id/notes` | Set the human's session notes. |
 | PUT | `/api/sessions/:id/state` | Idempotent total-state sync. The app's only session write. |
@@ -346,9 +347,15 @@ Reads accept `?format=md`.
 
 ```
 planned  ──start──▶  active  ──finish──▶  done
-   │                                        │
- editable                              immutable
+   ▲                   │                    │
+   └─────reset─────────┘               immutable
+ editable
 ```
+
+`reset` is for opening a session and then not lifting after all. It puts an
+active session back in the queue at its original position, unstarted, and
+**clears every logged set** — it is not a way to abandon a session part-way
+through. It refuses a session that is already `done`.
 
 `GET /api/today` returns `{"state": ...}` — one of `ready` (something queued),
 `in_progress` (a session is active), or `empty` (nothing queued). If it returns

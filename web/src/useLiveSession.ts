@@ -208,6 +208,21 @@ export function useLiveSession(id: number) {
     return () => window.removeEventListener("pagehide", onHide);
   }, []);
 
+  /**
+   * Forget this session locally, without pushing anything.
+   *
+   * Used when the server has already reset the session back to planned: the
+   * cached copy now describes a state that no longer exists, and a heartbeat or
+   * pagehide beacon carrying it would put the logged sets straight back. The
+   * dirty flag is cleared first so nothing in flight can resurrect it.
+   */
+  const abandon = useCallback(() => {
+    dirtyRef.current = false;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    drop(id);
+    setSession(null);
+  }, [id]);
+
   /** Finish: push synchronously so the queue and history are correct before we
    *  leave the screen, but never block on it — local state already says done. */
   const finish = useCallback(async () => {
@@ -218,5 +233,5 @@ export function useLiveSession(id: number) {
     drop(id);
   }, [flush, id, mutate]);
 
-  return { session, sync, error, mutate, flush, finish };
+  return { session, sync, error, mutate, flush, finish, abandon };
 }

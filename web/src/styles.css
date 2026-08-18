@@ -360,3 +360,41 @@ label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 5px
   border-color: var(--accent);
   color: #06210f;
 }
+
+/* --- bottom sheet ---
+   For the rare, mildly destructive action that shouldn't sit on screen as a
+   button. Anchored to the bottom because that's where a thumb already is. */
+
+.sheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(6, 8, 11, 0.6);
+  backdrop-filter: blur(3px);
+  animation: sheet-fade 0.14s ease-out;
+}
+
+.sheet {
+  width: 100%;
+  max-width: 620px;
+  padding: 20px 18px calc(24px + env(safe-area-inset-bottom));
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  border-radius: var(--radius) var(--radius) 0 0;
+  animation: sheet-up 0.16s ease-out;
+}
+
+@keyframes sheet-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sheet-up { from { transform: translateY(14px); } to { transform: none; } }
+
+/* A heading that responds to a hold. Not a button, so it gets no affordance
+   beyond suppressing the text selection a long press would otherwise start. */
+.holdable {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  cursor: pointer;
+}

@@ -360,6 +360,31 @@ export function startSession(id: number): Session | null {
   return getSession(id);
 }
 
+/**
+ * Put an started session back in the queue as if it had never been opened:
+ * status back to planned, `started_at` cleared, every logged set wiped.
+ *
+ * This is for opening a session and then not lifting — not for abandoning one
+ * part-way. It refuses a `done` session outright, because that's history. Its
+ * queue `position` is left alone, so it lands back exactly where it was rather
+ * than jumping the queue or falling to the end.
+ */
+export function resetSession(id: number): Session | null {
+  const s = getSession(id);
+  if (!s || s.status !== "active") return s;
+
+  db.transaction(() => {
+    db.run(
+      `UPDATE sets SET reps = NULL, completed_at = NULL
+        WHERE session_exercise_id IN (SELECT id FROM session_exercises WHERE session_id = ?)`,
+      [id],
+    );
+    db.run(`UPDATE sessions SET status = 'planned', started_at = NULL, notes = NULL WHERE id = ?`, [id]);
+  })();
+
+  return getSession(id);
+}
+
 export function finishSession(id: number): Session | null {
   const s = getSession(id);
   if (!s || s.status === "done") return s;
