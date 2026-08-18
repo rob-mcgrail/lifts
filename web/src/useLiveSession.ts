@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Session } from "./api";
+import { api, type Session, type SessionState } from "./api";
 
 export type SyncState = "synced" | "pending" | "offline" | "error";
 
@@ -51,7 +51,7 @@ function drop(id: number) {
 }
 
 /** The state the server needs. Sent whole, every time, so it's idempotent. */
-function payload(s: Session) {
+function payload(s: Session): SessionState {
   return {
     status: s.status === "planned" ? "active" : s.status,
     notes: s.notes ?? undefined,
@@ -98,12 +98,7 @@ export function useLiveSession(id: number) {
     dirtyRef.current = false;
 
     try {
-      const res = await fetch(`/api/sessions/${current.id}/state`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload(current)),
-      });
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      await api.syncState(current.id, payload(current));
       setSync(dirtyRef.current ? "pending" : "synced");
       setError(null);
     } catch (e) {
@@ -146,9 +141,9 @@ export function useLiveSession(id: number) {
     const cached = load(id);
     if (cached) setSession(cached.session);
 
-    fetch(`/api/sessions/${id}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))))
-      .then((fresh: Session) => {
+    api
+      .session(id)
+      .then((fresh) => {
         if (cancelled) return;
         if (!cached) {
           setSession(fresh);

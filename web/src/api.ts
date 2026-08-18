@@ -49,16 +49,11 @@ export type Today =
   | { state: "ready"; session: Session; queued: number; last: Session | null }
   | { state: "empty"; queued: 0 };
 
-export type PlannedExercise = {
-  exercise: string;
-  name?: string;
-  kind?: string;
-  weight: number;
-  sets: number;
-  reps: number;
-  note?: string;
-  rest_ready?: number;
-  rest_end?: number;
+/** The total-state payload a live session pushes. See useLiveSession. */
+export type SessionState = {
+  status: SessionStatus;
+  notes?: string;
+  exercises: { id: number; target_weight: number; sets: { id: number; reps: number | null }[] }[];
 };
 
 export type Loadout = {
@@ -89,43 +84,24 @@ export const api = {
   history: (limit = 50) => req<(Session & { volume: number })[]>(`/history?limit=${limit}`),
   session: (id: number) => req<Session>(`/sessions/${id}`),
 
-  plan: (body: { name?: string; plan_note?: string; exercises: PlannedExercise[] }) =>
-    req<Session>("/sessions", { method: "POST", body: JSON.stringify(body) }),
-  updatePlan: (id: number, body: Record<string, unknown>) =>
-    req<Session>(`/sessions/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   start: (id: number) => req<Session>(`/sessions/${id}/start`, { method: "POST" }),
-  finish: (id: number) => req<Session>(`/sessions/${id}/finish`, { method: "POST" }),
   remove: (id: number) => req<{ ok: true }>(`/sessions/${id}`, { method: "DELETE" }),
-  setNotes: (id: number, notes: string) =>
-    req<{ ok: true }>(`/sessions/${id}/notes`, { method: "PATCH", body: JSON.stringify({ notes }) }),
 
-  logSet: (setId: number, reps: number | null, weight?: number) =>
-    req<SetRow>(`/sets/${setId}`, {
-      method: "PATCH",
-      body: JSON.stringify(weight === undefined ? { reps } : { reps, weight }),
-    }),
-  setExerciseWeight: (sessionExerciseId: number, weight: number) =>
-    req<{ ok: true; weight: number; plates: Plates | null }>(`/session-exercises/${sessionExerciseId}/weight`, {
-      method: "PATCH",
-      body: JSON.stringify({ weight }),
-    }),
+  /**
+   * Push the whole state of a live session. Idempotent, so a retry just carries
+   * whatever is current — this is the only write the workout screen makes, and
+   * it replaces the per-set and per-exercise endpoints the app used to call.
+   */
+  syncState: (id: number, state: SessionState) =>
+    req<Session>(`/sessions/${id}/state`, { method: "PUT", body: JSON.stringify(state) }),
 
   settings: () => req<Record<string, string>>("/settings"),
-  updateSettings: (patch: Record<string, number>) =>
-    req<Record<string, string>>("/settings", { method: "PATCH", body: JSON.stringify(patch) }),
 
   progress: (slug: string) =>
     req<{ session_id: number; date: string; weight: number; target_reps: number; reps: (number | null)[]; est_1rm: number }[]>(
       `/progress/${slug}`,
     ),
 };
-
-/** "20 + 10 + 2.5" — what to actually hang on the bar, per side. Null for
- *  anything that isn't a barbell, where a loading would be meaningless. */
-export function plateLabel(p: Plates | null): string {
-  if (!p) return "";
-  return p.perSide.length === 0 ? "empty bar" : p.perSide.join(" + ");
-}
 
 export function fmtWeight(w: number): string {
   return Number.isInteger(w) ? String(w) : String(Math.round(w * 100) / 100);

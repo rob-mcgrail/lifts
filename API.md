@@ -338,9 +338,9 @@ Reads accept `?format=md`.
 | POST | `/api/sessions/:id/start` | Mark active. |
 | POST | `/api/sessions/:id/finish` | Mark done. |
 | PATCH | `/api/sessions/:id/notes` | Set the human's session notes. |
-| PUT | `/api/sessions/:id/state` | Idempotent total-state sync (used by the app). |
-| PATCH | `/api/sets/:id` | Log a single set. |
-| PATCH | `/api/session-exercises/:id/weight` | Change one movement's weight. |
+| PUT | `/api/sessions/:id/state` | Idempotent total-state sync. The app's only session write. |
+| PATCH | `/api/sets/:id` | Correct one mis-logged set. |
+| PATCH | `/api/session-exercises/:id/weight` | Correct one movement's weight. |
 
 ### Session lifecycle
 
@@ -356,11 +356,22 @@ planned  ──start──▶  active  ──finish──▶  done
 
 ### Endpoints you probably shouldn't touch
 
-`PUT /api/sessions/:id/state`, `PATCH /api/sets/:id` and
-`PATCH /api/session-exercises/:id/weight` exist for the phone app to record a
-live workout. There's no reason for an agent to write through them — recording
-what was lifted is the human's job, and inventing set data would corrupt the
-record you're supposed to be analysing.
+`PUT /api/sessions/:id/state` is how the phone records a live workout: it pushes
+the whole state of the session it's running, and it's the only write the app
+makes during a session. Don't drive it — recording what was lifted is the
+human's job, and inventing set data corrupts the record you're meant to be
+analysing.
+
+`PATCH /api/sets/:id` and `PATCH /api/session-exercises/:id/weight` are single,
+deliberate corrections — one mis-logged set, one wrong weight. The app no longer
+uses either. Reach for them only when the human asks you to fix something
+specific, never to record a workout.
+
+Note the asymmetry: the state sync refuses to touch a session that is already
+`done`, so a stale phone can't rewrite history, while the two correction
+endpoints will. That's intentional — fixing a genuine logging error afterwards
+is legitimate, but it has to be a deliberate act rather than a side effect of
+a sync.
 
 ---
 
