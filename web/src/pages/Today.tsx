@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, fmtWeight, plateLabel, relDate, sessionLabel, type Today as TodayData } from "../api";
+import { api, fmtWeight, relDate, sessionLabel, type Today as TodayData } from "../api";
 import { Screen } from "./Screen";
 
 export default function Today() {
@@ -63,14 +63,18 @@ export default function Today() {
                 {e.note && <> · {e.note}</>}
               </div>
             </div>
+            {/* No plate breakdown here — this screen is a preview of what's
+                coming, not something you read at the rack. It only earns its
+                space once the session has started. The exception is a weight
+                the bar can't actually be loaded to, which you want to know
+                about before you walk over to it. */}
             <div style={{ textAlign: "right" }}>
               <div className="weight">
                 {fmtWeight(e.target_weight)}<span>kg</span>
               </div>
-              {e.plates && (
-                <div className={`plates${e.plates.shortfall > 0 ? " short" : ""}`}>
-                  {plateLabel(e.plates)}
-                  {e.plates.shortfall > 0 && ` · ${fmtWeight(e.plates.shortfall)}kg short`}
+              {e.plates && e.plates.shortfall > 0 && (
+                <div className="plates short">
+                  can't load · {fmtWeight(e.plates.shortfall)}kg short
                 </div>
               )}
             </div>

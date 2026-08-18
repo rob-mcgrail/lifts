@@ -9,7 +9,7 @@ import Progress from "./pages/Progress";
 import Queue from "./pages/Queue";
 
 const TABS = [
-  { to: "/", label: "Today", ico: "🏋" },
+  { to: "/", label: "Today", ico: "🐷" },
   { to: "/queue", label: "Queue", ico: "📋" },
   { to: "/history", label: "History", ico: "🗓" },
   { to: "/progress", label: "Progress", ico: "📈" },

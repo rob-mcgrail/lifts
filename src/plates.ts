@@ -9,13 +9,13 @@ export type PlateSolution = { perSide: number[]; achievable: number; shortfall: 
  * The bar and plates in the gym. Hardcoded on purpose — it changes about once a
  * year, and a settings screen for it is more UI than it's worth. Edit here.
  * `perSide` is how many of that plate go on ONE side, which is how you actually
- * count them at the rack. Max loadable with this set is 135kg.
+ * count them at the rack. Max loadable with this set is 175kg.
  */
 export const LOADOUT: Loadout = {
   bar: 20,
   plates: [
     { weight: 20, perSide: 1 },
-    { weight: 10, perSide: 2 },
+    { weight: 10, perSide: 4 },
     { weight: 5, perSide: 2 },
     { weight: 2.5, perSide: 1 },
     { weight: 1.25, perSide: 2 },
