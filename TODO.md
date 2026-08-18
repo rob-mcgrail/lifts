@@ -64,19 +64,26 @@ there's no way to reach it from the phone. Today a mis-logged set has to be
 fixed with curl. History would need an edit affordance — and it should feel
 deliberate, not like ordinary logging.
 
-## 4. Service worker
+## 4. `DELETE /api/sessions/:id` returns 200 for ids that don't exist
+
+`db.deleteSession` fires the DELETE and reports success regardless, so a script
+looping over ids happily reports deleting sessions that were never there. Should
+404 on a missing id. Harmless, but it makes any tooling built on it lie about
+what it did.
+
+## 5. Service worker
 
 Bundle caching is `immutable`, so a reload mostly works from cache, but the app
 shell isn't genuinely offline. Worth doing before relying on it in a basement
 gym with no signal at all. Session state already survives offline; this is only
 about the app *loading*.
 
-## 5. Web manifest
+## 6. Web manifest
 
 Now that it's on HTTPS, home-screen install is worth having: fullscreen, no
 browser chrome, and notifications behave better for the rest timer.
 
-## 6. Offsite backups
+## 7. Offsite backups
 
 `update.sh` keeps the last 5 in `data/backups/` on the box. That covers a bad
 deploy; it does not cover losing the box. Nothing yet copies them off it.
