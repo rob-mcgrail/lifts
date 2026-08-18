@@ -129,6 +129,59 @@ Valid kinds: `barbell` (default), `dumbbell`, `machine`, `bodyweight`, `other`.
 You only need to send `kind` the first time a movement appears; it's remembered.
 Sending it again with a different value corrects the stored value.
 
+### Bodyweight movements
+
+`kind: "bodyweight"` changes how the app records a movement, so set it
+deliberately — pull-ups, dips, push-ups, hanging leg raises.
+
+A loaded barbell has a target you either hit or fall short of, so its set circle
+starts at the target and steps **down**. A set of pull-ups has no target to
+miss: you do as many as you can. So a bodyweight circle starts empty and the
+human **taps up** to the count they managed.
+
+What you send, and what each field means for a bodyweight movement:
+
+| Field | Meaning |
+|---|---|
+| `sets` | A **recommendation**, not a contract. The app shows a `+` so the human can add more on the day; sets can exceed what you planned. |
+| `reps` | The suggested count, used as the ghost figure only when there's no history for the movement. Still required, still 1–100. |
+| `weight` | **Added** load — a dip belt or a weight vest. Send `0` for unloaded, which is the normal case. |
+
+```bash
+curl -s -X POST "$LIFTS/api/sessions" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "Day 1",
+    "exercises": [
+      { "exercise": "squat", "weight": 120, "sets": 3, "reps": 5 },
+      { "exercise": "pullup", "name": "Pull-up", "kind": "bodyweight",
+        "weight": 0, "sets": 3, "reps": 5 }
+    ]
+  }'
+```
+
+**Read `previous` before you plan one.** Every exercise on `/api/today`,
+`/api/queue` and `/api/sessions/:id` carries what was managed last time:
+
+```json
+{ "slug": "pullup",
+  "previous": { "date": "2026-08-11 09:12:03", "reps": [8, 7, 5] } }
+```
+
+The app shows those numbers greyed in the circles before anything is logged —
+per set, so set 3 shows what set 3 managed — falling back to `reps` when there's
+no history. It's `null` for non-bodyweight movements and on `/api/history`,
+where it would be noise.
+
+That makes `reps` matter far less than it looks: after the first session the
+ghost comes from real history, and your suggested count is only the seed. Use it
+to set a sensible starting point, then leave it alone and read `previous` and
+`/api/log` to see how it's actually going.
+
+Because sets can be added on the day, **don't assume the logged set count
+matches what you planned** when you analyse. `/api/log` gives one row per set
+actually performed, which is the honest number.
+
 ### Unknown exercises are created automatically
 
 Reference any slug you like. If it doesn't exist it is created, using `name` as
@@ -337,6 +390,7 @@ Reads accept `?format=md`.
 | DELETE | `/api/sessions/:id` | Remove a session. |
 | POST | `/api/sessions/:id/start` | Mark active. |
 | POST | `/api/sessions/:id/reset` | Active → planned. Clears every logged set. |
+| POST | `/api/session-exercises/:id/sets` | Append a set (the `+` on bodyweight). |
 | POST | `/api/sessions/:id/finish` | Mark done. |
 | PATCH | `/api/sessions/:id/notes` | Set the human's session notes. |
 | PUT | `/api/sessions/:id/state` | Idempotent total-state sync. The app's only session write. |

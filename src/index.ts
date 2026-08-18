@@ -53,15 +53,25 @@ db.seedExercises();
  * The raw nullable columns stay on the response next to the resolved `rest`,
  * so a caller can still tell an override from an inherited value.
  */
-function decorate(s: db.Session): db.Session & {
+function decorate(
+  s: db.Session,
+  opts: { withPrevious?: boolean } = {},
+): db.Session & {
   exercises: (db.SessionExerciseDetail & {
     plates: ReturnType<typeof platesFor> | null;
     rest: { ready: number; end: number };
+    previous: { date: string; reps: (number | null)[] } | null;
   })[];
 } {
   const global = db.getSettings();
   const ready = (e: db.SessionExerciseDetail) => e.rest_ready ?? s.rest_ready ?? Number(global.rest_ready);
   const end = (e: db.SessionExerciseDetail) => e.rest_end ?? s.rest_end ?? Number(global.rest_end);
+
+  // Only looked up where it's actually shown, and only for the movements that
+  // use it. History decorates fifty sessions at a time and has no use for it.
+  const previous = opts.withPrevious
+    ? db.previousCounts([...new Set(s.exercises.filter((e) => e.kind === "bodyweight").map((e) => e.slug))])
+    : {};
 
   return {
     ...s,
@@ -69,6 +79,7 @@ function decorate(s: db.Session): db.Session & {
       ...e,
       plates: e.kind === "barbell" ? platesFor(e.target_weight) : null,
       rest: { ready: ready(e), end: end(e) },
+      previous: previous[e.slug] ?? null,
     })),
   };
 }
@@ -196,7 +207,7 @@ app.patch("/api/settings", async (c) => {
 // The one screen that matters: whatever you should be doing right now.
 app.get("/api/today", (c) => {
   const active = db.activeSession();
-  if (active) return respond(c, { state: "in_progress" as const, session: decorate(active) }, md.today);
+  if (active) return respond(c, { state: "in_progress" as const, session: decorate(active, { withPrevious: true }) }, md.today);
 
   const next = db.nextPlanned();
   if (!next) return respond(c, { state: "empty" as const, queued: 0 }, md.today);
@@ -205,7 +216,7 @@ app.get("/api/today", (c) => {
     c,
     {
       state: "ready" as const,
-      session: decorate(next),
+      session: decorate(next, { withPrevious: true }),
       queued: db.listQueue().length,
       last: db.listHistory(1)[0] ?? null,
     },
@@ -215,7 +226,7 @@ app.get("/api/today", (c) => {
 
 // --- queue & sessions ---
 
-app.get("/api/queue", (c) => respond(c, db.listQueue().map(decorate), md.queue));
+app.get("/api/queue", (c) => respond(c, db.listQueue().map((s) => decorate(s, { withPrevious: true })), md.queue));
 
 app.get("/api/history", (c) => {
   const limit = Math.min(Number(c.req.query("limit")) || 50, 500);
@@ -242,7 +253,7 @@ app.get("/api/sessions/:id", (c) => {
   if (id === null) return c.json({ error: "Bad id" }, 400);
   const s = db.getSession(id);
   if (!s) return c.json({ error: "Not found" }, 404);
-  const decorated = decorate(s);
+  const decorated = decorate(s, { withPrevious: true });
   return respond(c, decorated, (d) => (d.status === "planned" ? md.plannedSession(d) : md.loggedSession(d)));
 });
 
@@ -418,6 +429,19 @@ app.patch("/api/sets/:id", async (c) => {
   const updated = db.logSet(id, raw as number | null, weight);
   if (!updated) return c.json({ error: "Not found" }, 404);
   return c.json(updated);
+});
+
+/**
+ * Append a set to an exercise mid-session — the (+) on a bodyweight movement.
+ * Returns just the new row; the client appends it to what it already holds
+ * rather than reloading and losing anything it hasn't pushed yet.
+ */
+app.post("/api/session-exercises/:id/sets", (c) => {
+  const id = intParam(c, "id");
+  if (id === null) return c.json({ error: "Bad id" }, 400);
+  const row = db.addSet(id);
+  if (!row) return c.json({ error: "No such exercise, or its session is already finished" }, 404);
+  return c.json(row, 201);
 });
 
 /** Change the working weight for one exercise mid-session. */

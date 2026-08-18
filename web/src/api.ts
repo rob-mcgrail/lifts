@@ -23,6 +23,9 @@ export type SessionExercise = {
   rest_end: number | null;
   /** Resolved by the server: exercise override, else session, else global. */
   rest: { ready: number; end: number };
+  /** What you managed last time. Only populated for bodyweight movements, and
+   *  only on the screens that show it. */
+  previous: { date: string; reps: (number | null)[] } | null;
   sets: SetRow[];
   plates: Plates | null;
 };
@@ -86,6 +89,11 @@ export const api = {
 
   start: (id: number) => req<Session>(`/sessions/${id}/start`, { method: "POST" }),
   reset: (id: number) => req<Session>(`/sessions/${id}/reset`, { method: "POST" }),
+
+  /** Append a set mid-session. Needs the network — a new row needs an id, and
+   *  the state sync only ever updates rows it can already see. */
+  addSet: (sessionExerciseId: number) =>
+    req<SetRow>(`/session-exercises/${sessionExerciseId}/sets`, { method: "POST" }),
   remove: (id: number) => req<{ ok: true }>(`/sessions/${id}`, { method: "DELETE" }),
 
   /**

@@ -436,6 +436,88 @@ export function logSet(setId: number, reps: number | null, weight?: number | nul
   );
 }
 
+/**
+ * Append a set to an exercise mid-session — the (+) on a bodyweight movement,
+ * where the planned count is a recommendation rather than a contract.
+ *
+ * This is a real server call rather than something the state sync can do,
+ * because a new set needs an id and the sync deliberately only ever *updates*
+ * rows it can already see. Adding a set is a rare, deliberate act; logging reps
+ * into one is the thing that has to work with no signal.
+ */
+export function addSet(sessionExerciseId: number): SessionSetRow | null {
+  const owner = db
+    .query<{ id: number; status: string }, [number]>(
+      `SELECT se.id, s.status FROM session_exercises se
+         JOIN sessions s ON s.id = se.session_id WHERE se.id = ?`,
+    )
+    .get(sessionExerciseId);
+  if (!owner || owner.status === "done") return null;
+
+  const next =
+    (db
+      .query<{ n: number | null }, [number]>(`SELECT MAX(idx) AS n FROM sets WHERE session_exercise_id = ?`)
+      .get(sessionExerciseId)?.n ?? 0) + 1;
+
+  db.run(`INSERT INTO sets (session_exercise_id, idx) VALUES (?, ?)`, [sessionExerciseId, next]);
+  return db
+    .query<SessionSetRow, [number]>(`SELECT id, idx, reps, weight, completed_at FROM sets WHERE id = ?`)
+    .get(db.query<{ id: number }, []>(`SELECT last_insert_rowid() AS id`).get()!.id) ?? null;
+}
+
+export type PreviousCounts = Record<string, { date: string; reps: (number | null)[] }>;
+
+/**
+ * What you managed last time, per movement — the number a bodyweight set is
+ * chasing, and one you will not remember a week later.
+ *
+ * Two queries regardless of how many movements are asked about. Doing this
+ * per-exercise inside decorate() would be an N+1, and decorate() runs per
+ * session, so a queue of five would quietly become dozens of round trips.
+ */
+export function previousCounts(slugs: string[]): PreviousCounts {
+  if (slugs.length === 0) return {};
+  const holes = slugs.map(() => "?").join(",");
+
+  const latest = db
+    .query<{ slug: string; date: string; se_id: number }, string[]>(
+      `WITH ranked AS (
+         SELECT e.slug AS slug,
+                COALESCE(s.finished_at, s.started_at) AS date,
+                se.id AS se_id,
+                ROW_NUMBER() OVER (
+                  PARTITION BY e.slug ORDER BY COALESCE(s.finished_at, s.started_at) DESC, s.id DESC
+                ) AS rn
+           FROM session_exercises se
+           JOIN sessions s ON s.id = se.session_id
+           JOIN exercises e ON e.id = se.exercise_id
+          WHERE s.status = 'done' AND e.slug IN (${holes})
+       )
+       SELECT slug, date, se_id FROM ranked WHERE rn = 1`,
+    )
+    .all(...slugs);
+  if (latest.length === 0) return {};
+
+  const setHoles = latest.map(() => "?").join(",");
+  const rows = db
+    .query<{ session_exercise_id: number; reps: number | null }, number[]>(
+      `SELECT session_exercise_id, reps FROM sets
+        WHERE session_exercise_id IN (${setHoles}) ORDER BY session_exercise_id, idx`,
+    )
+    .all(...latest.map((l) => l.se_id));
+
+  const bySe = new Map<number, (number | null)[]>();
+  for (const r of rows) {
+    const list = bySe.get(r.session_exercise_id) ?? [];
+    list.push(r.reps);
+    bySe.set(r.session_exercise_id, list);
+  }
+
+  const out: PreviousCounts = {};
+  for (const l of latest) out[l.slug] = { date: l.date, reps: bySe.get(l.se_id) ?? [] };
+  return out;
+}
+
 /** The movement kind behind a session_exercise row — decides plate maths. */
 export function sessionExerciseKind(sessionExerciseId: number): string | null {
   return (

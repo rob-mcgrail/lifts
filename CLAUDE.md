@@ -103,6 +103,26 @@ per-side loads via bounded-knapsack reachability, in integer hundredths of a kg,
 cached per loadout. `tests/plates.test.ts` asserts every solution only uses
 plates actually owned and that the breakdown sums to the weight it claims.
 
+## Bodyweight movements
+
+`kind === "bodyweight"` inverts the set interaction, and that asymmetry is the
+point rather than an inconsistency. A loaded bar has a target you either hit or
+fall short of, so `SetButton` starts at target and taps *down*. A set of
+pull-ups has nothing to miss, so `CountButton` starts empty and taps *up*, with
+a `+` to add sets beyond the plan.
+
+Before anything is logged, a bodyweight circle shows what that slot managed last
+time — `previous`, resolved server-side in `decorate()` and falling back to the
+planned `reps` when there's no history. It's computed only where it's shown
+(today, queue, session detail) and only for bodyweight movements: `previousCounts`
+is two queries regardless of how many movements are asked about, but calling it
+from a `listHistory` that decorates fifty sessions would still be waste.
+
+Nothing claims a bodyweight set "hit" or "missed" — there's no target to judge
+it against, so history and `/api/log` say `logged` and leave the comparison to
+whoever is reading. Unloaded bodyweight shows `bw` rather than `0kg`, and its
+volume is `—` rather than a zero that reads like missing data.
+
 Only `kind === "barbell"` movements get a plate breakdown. A 24kg dumbbell press
 is not "20kg bar + 2kg a side", and showing a loading for it would be actively
 misleading. Non-barbell movements get `plates: null`.

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, fmtWeight, sessionLabel, type Session, type SessionExercise } from "../api";
 import { useLiveSession, type SyncState } from "../useLiveSession";
+import { useLongPress } from "../useLongPress";
 import { fmtClock, useRestTimer, VOICES, type Voice } from "../useRestTimer";
 import { Screen } from "./Screen";
 
@@ -91,6 +92,31 @@ export default function Workout() {
     [timer],
   );
 
+  const [addingTo, setAddingTo] = useState<number | null>(null);
+
+  /**
+   * Append a set. The only thing on this screen that needs the network — a new
+   * row needs a real id before it can be synced into. The returned row is merged
+   * into local state rather than reloading the session, which would throw away
+   * anything not yet pushed.
+   */
+  async function addSetTo(sessionExerciseId: number) {
+    setAddingTo(sessionExerciseId);
+    try {
+      const row = await api.addSet(sessionExerciseId);
+      mutate((sess) => ({
+        ...sess,
+        exercises: sess.exercises.map((e) =>
+          e.id === sessionExerciseId ? { ...e, sets: [...e.sets, row] } : e,
+        ),
+      }));
+    } catch (e) {
+      setResetError(`Couldn't add a set — ${(e as Error).message}`);
+    } finally {
+      setAddingTo(null);
+    }
+  }
+
   async function onFinish() {
     timer.stop();
     setDone(true); // local state is authoritative; the push happens behind this
@@ -159,7 +185,10 @@ export default function Workout() {
               <div>
                 <h2>{e.name}</h2>
                 <div className="muted small">
-                  {e.target_sets}×{e.target_reps}
+                  {e.kind === "bodyweight"
+                    ? `${e.target_sets} sets`
+                    : `${e.target_sets}×${e.target_reps}`}
+                  {e.previous && <> · last {e.previous.reps.map((r) => r ?? "–").join(" ")}</>}
                   {e.note && <> · {e.note}</>}
                 </div>
               </div>
@@ -178,9 +207,14 @@ export default function Workout() {
                   onContextMenu={(ev) => ev.preventDefault()}
                   style={{ cursor: e.plates ? "pointer" : "default" }}
                 >
-                  <div className="weight">
-                    {fmtWeight(e.target_weight)}<span>kg</span>
-                  </div>
+                  {e.kind === "bodyweight" && e.target_weight === 0 ? (
+                    <div className="muted small">bodyweight</div>
+                  ) : (
+                    <div className="weight">
+                      {e.kind === "bodyweight" && "+"}
+                      {fmtWeight(e.target_weight)}<span>kg</span>
+                    </div>
+                  )}
                   {e.plates && e.plates.shortfall > 0 && (
                     <div className="plates short">can't load · {fmtWeight(e.plates.shortfall)}kg short</div>
                   )}
@@ -189,15 +223,37 @@ export default function Workout() {
             </div>
 
             <div className="sets">
-              {e.sets.map((s) => (
-                <SetButton
-                  key={s.id}
-                  reps={s.reps}
-                  target={e.target_reps}
-                  onSet={(reps) => setReps(s.id, reps)}
-                  onSettled={(reps) => restAfter(e, s.id, reps)}
-                />
-              ))}
+              {e.sets.map((s, i) =>
+                e.kind === "bodyweight" ? (
+                  <CountButton
+                    key={s.id}
+                    reps={s.reps}
+                    ghost={e.previous?.reps[i] ?? e.target_reps ?? null}
+                    onSet={(reps) => setReps(s.id, reps)}
+                    onSettled={(reps) => restAfter(e, s.id, reps)}
+                  />
+                ) : (
+                  <SetButton
+                    key={s.id}
+                    reps={s.reps}
+                    target={e.target_reps}
+                    onSet={(reps) => setReps(s.id, reps)}
+                    onSettled={(reps) => restAfter(e, s.id, reps)}
+                  />
+                ),
+              )}
+              {/* The planned count on a bodyweight movement is a recommendation,
+                  not a contract — if you have another set in you, take it. */}
+              {e.kind === "bodyweight" && (
+                <button
+                  className="set add"
+                  onClick={() => addSetTo(e.id)}
+                  disabled={addingTo === e.id}
+                  aria-label={`Add a set to ${e.name}`}
+                >
+                  +
+                </button>
+              )}
             </div>
           </div>
         ))}
@@ -373,6 +429,67 @@ function SetButton({
       onContextMenu={(e) => e.preventDefault()}
     >
       {reps === null ? target : reps}
+    </button>
+  );
+}
+
+/**
+ * A bodyweight set: tap up to the number you managed.
+ *
+ * The opposite of SetButton, and deliberately so. A loaded barbell has a target
+ * you either hit or fall short of, so its circle starts at target and steps
+ * down. A set of pull-ups has no target to miss — you do as many as you can and
+ * record it — so this starts empty and counts up.
+ *
+ * Before anything is logged it shows what you managed last time in this slot,
+ * greyed, falling back to the planned count when there's no history. That's the
+ * number you're chasing, and it's the one thing you certainly won't remember.
+ */
+function CountButton({
+  reps,
+  ghost,
+  onSet,
+  onSettled,
+}: {
+  reps: number | null;
+  ghost: number | null;
+  onSet: (reps: number | null) => void;
+  onSettled: (reps: number | null) => void;
+}) {
+  const liveRef = useRef(reps);
+  liveRef.current = reps;
+
+  // Long press clears, because you can't tap downwards past zero and a miscount
+  // otherwise means cycling all the way round.
+  const hold = useLongPress(() => {
+    liveRef.current = null;
+    onSet(null);
+    onSettled(null);
+  });
+
+  function tap() {
+    if (hold.wasLongPress()) return;
+    const next = Math.min(MAX_REPS, (liveRef.current ?? 0) + 1);
+    liveRef.current = next;
+    onSet(next);
+    onSettled(next);
+  }
+
+  const state =
+    reps === null ? "" : ghost === null ? " done" : reps > ghost ? " over" : reps === ghost ? " done" : " partial";
+
+  return (
+    <button
+      className={`set count${state}`}
+      onPointerDown={hold.onPointerDown}
+      onPointerUp={(e) => {
+        hold.onPointerUp(e as unknown as PointerEvent);
+        tap();
+      }}
+      onPointerCancel={hold.onPointerCancel}
+      onContextMenu={hold.onContextMenu}
+    >
+      {reps === null ? <span className="ghost">{ghost ?? "–"}</span> : reps}
     </button>
   );
 }

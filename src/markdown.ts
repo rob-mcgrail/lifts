@@ -39,12 +39,26 @@ type DecoratedSession = Omit<Session, "exercises"> & { exercises: Decorated[] };
 
 const repsCell = (e: Decorated): string => e.sets.map((s) => (s.reps === null ? "·" : s.reps)).join(" ");
 
+/** "0kg" on a set of pull-ups reads like a data error rather than bodyweight. */
+const weightCell = (e: Decorated): string => {
+  if (e.kind !== "bodyweight") return kg(e.target_weight);
+  return e.target_weight === 0 ? "bw" : `bw +${kg(e.target_weight)}`;
+};
+
+/** Bodyweight sets are a recommendation, so the planned count is "3 sets". */
+const targetCell = (e: Decorated): string =>
+  e.kind === "bodyweight" ? `${e.target_sets} sets` : `${e.target_sets}×${e.target_reps}`;
+
 const hit = (e: Decorated): boolean =>
   e.sets.length > 0 && e.sets.every((s) => s.reps !== null && s.reps >= e.target_reps);
 
 const result = (e: Decorated): string => {
   if (e.sets.every((s) => s.reps === null)) return "not started";
   if (e.sets.some((s) => s.reps === null)) return "partial";
+  // A bodyweight set has no target to fall short of — you did what you did.
+  // Claiming "hit" or "missed" against the suggested count would be a lie;
+  // compare against /api/log or `previous` instead.
+  if (e.kind === "bodyweight") return "logged";
   return hit(e) ? "hit" : "missed";
 };
 
@@ -54,8 +68,8 @@ export function plannedSession(s: DecoratedSession): string {
     i + 1,
     e.name,
     e.slug,
-    `${e.target_sets}×${e.target_reps}`,
-    kg(e.target_weight),
+    targetCell(e),
+    weightCell(e),
     plateCell(e.plates),
     e.note ?? "",
   ]);
@@ -76,8 +90,8 @@ export function loggedSession(s: DecoratedSession): string {
   const rows = s.exercises.map((e, i) => [
     i + 1,
     e.name,
-    kg(e.target_weight),
-    `${e.target_sets}×${e.target_reps}`,
+    weightCell(e),
+    targetCell(e),
     repsCell(e),
     result(e),
   ]);
@@ -124,8 +138,8 @@ export function history(sessions: (DecoratedSession & { volume: number })[]): st
         s.id,
         s.name || "—",
         e.name,
-        kg(e.target_weight),
-        `${e.target_sets}×${e.target_reps}`,
+        weightCell(e),
+        targetCell(e),
         repsCell(e),
         result(e),
       ]);
@@ -167,17 +181,24 @@ export function progress(
 /** Flat set-level log — the analysis view. */
 export function log(sets: LoggedSet[]): string {
   if (sets.length === 0) return "# Log\n\nNo logged sets.";
-  const rows = sets.map((s) => [
-    day(s.date),
-    s.session_id,
-    s.exercise,
-    s.set_idx,
-    kg(s.weight),
-    s.target_reps,
-    s.reps,
-    s.reps !== null && s.reps >= s.target_reps ? "hit" : "miss",
-    Math.round((s.reps ?? 0) * s.weight),
-  ]);
+  const rows = sets.map((s) => {
+    const bw = s.kind === "bodyweight";
+    return [
+      day(s.date),
+      s.session_id,
+      s.exercise,
+      s.set_idx,
+      bw ? (s.weight === 0 ? "bw" : `bw +${kg(s.weight)}`) : kg(s.weight),
+      bw ? "—" : s.target_reps,
+      s.reps,
+      // No target to hit on a bodyweight set — compare it against the same
+      // movement's earlier rows, not against the suggested count.
+      bw ? "logged" : s.reps !== null && s.reps >= s.target_reps ? "hit" : "miss",
+      // Volume is external load moved. For unloaded bodyweight that's zero,
+      // which is true but reads as missing data, so say so plainly.
+      bw && s.weight === 0 ? "—" : Math.round((s.reps ?? 0) * s.weight),
+    ];
+  });
   return [
     `# Log (${sets.length} sets)`,
     "",

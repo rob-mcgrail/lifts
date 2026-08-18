@@ -409,3 +409,66 @@ label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 5px
 .holdable {
   cursor: pointer;
 }
+
+/* --- bodyweight sets ---
+   Counting up rather than down, so an unlogged circle shows what you managed
+   last time as a ghost — the number you're chasing. */
+
+.set.count .ghost { color: var(--line); font-weight: 500; }
+
+/* Adding a set is a lesser action than logging one, so it reads as an outline
+   rather than another countable circle. */
+.set.add {
+  border-style: dashed;
+  color: var(--muted);
+  font-size: 24px;
+  font-weight: 400;
+}
+.set.add[disabled] { opacity: 0.4; }
+
+/* --- two-week strip ---
+   Fourteen dots at the top of History: last week, then this. Enough to see
+   whether the week is going the way you meant it to, without a chart. */
+
+.weeks { padding: 14px 16px; }
+
+.week-labels,
+.week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  justify-items: center;
+  align-items: center;
+}
+
+.week-labels {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.week { margin-bottom: 8px; }
+.week:last-child { margin-bottom: 0; }
+
+.day {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  background: transparent;
+}
+
+/* Trained. */
+.day.on { background: var(--accent); border-color: var(--accent); }
+
+/* Today, whether or not it's been trained — a bold ring, drawn outside the dot
+   so it reads as "you are here" rather than as another state of the dot. */
+.day.now {
+  border-color: var(--text);
+  border-width: 2px;
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--text);
+}
+
+/* Days that haven't happened yet are dimmer, so an empty week doesn't look
+   like a week of missed sessions. */
+.day.ahead { opacity: 0.35; }
