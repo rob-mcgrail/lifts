@@ -206,3 +206,138 @@ input[type="number"], input[type="text"] {
 label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 5px; }
 
 .err { color: var(--fail); font-size: 14px; padding: 10px 0; }
+
+/* --- sync dot ---
+   Fixed, so it can never move the page under a thumb mid-set. Small enough to
+   ignore, always present so a glance is meaningful. */
+
+.sync-dot {
+  position: fixed;
+  top: calc(10px + env(safe-area-inset-top));
+  right: 10px;
+  z-index: 30;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: var(--muted);
+  transition: background 0.25s ease;
+}
+.sync-dot.synced  { background: var(--accent); }
+.sync-dot.pending { background: var(--warn); }
+.sync-dot.offline { background: #fb923c; }
+.sync-dot.error   { background: var(--fail); }
+
+/* --- press-and-hold plate view ---
+   Held open while a finger is down on the weight, so it must appear instantly
+   and cover everything: it's read at arm's length with a loaded bar in front
+   of you, not squinted at in a caption. */
+
+.plate-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(6, 8, 11, 0.93);
+  backdrop-filter: blur(14px);
+  animation: po-in 0.12s ease-out;
+  /* A held finger must not select text or raise the iOS callout menu. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  pointer-events: none;
+}
+
+@keyframes po-in {
+  from { opacity: 0; transform: scale(0.985); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.plate-overlay-inner {
+  width: 100%;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.po-head { text-align: center; }
+.po-name { color: var(--muted); font-size: 15px; letter-spacing: 0.02em; }
+.po-weight { font-size: 68px; font-weight: 700; letter-spacing: -0.035em; line-height: 1.05; }
+.po-weight span { font-size: 24px; font-weight: 500; color: var(--muted); margin-left: 2px; }
+.po-sum { color: var(--muted); font-size: 14px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+/* The bar runs across; plates stack outward from the collar on the left. */
+.po-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5px;
+  height: 210px;
+  padding: 0 10px;
+}
+
+/* The sleeve the plates sit on, drawn behind them. */
+.po-sleeve {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 13px;
+  transform: translateY(-50%);
+  border-radius: 3px;
+  background: linear-gradient(180deg, #6b7280, #3f4650 55%, #2a2f37);
+}
+
+.po-plate {
+  position: relative;
+  flex: 0 0 auto;
+  width: 30px;
+  min-height: 34px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), 0 3px 10px rgba(0, 0, 0, 0.5);
+}
+/* Weight reads down the plate, the way it does on a real one stood on edge. */
+.po-plate span {
+  font-size: 12px;
+  font-weight: 700;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  letter-spacing: 0.03em;
+}
+
+.po-collar {
+  position: relative;
+  flex: 0 0 auto;
+  width: 13px;
+  height: 46px;
+  margin-left: 3px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #7c8492, #4a515c);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.po-foot { text-align: center; color: var(--muted); font-size: 13px; }
+.po-short { color: var(--warn); }
+
+/* The weight is a press target, not a text run — a long press on it must not
+   start a selection or raise the iOS callout. */
+.weight-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  text-align: right;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}

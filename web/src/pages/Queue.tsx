@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, fmtWeight, plateLabel, sessionLabel, type Loadout, type PlannedExercise, type Session } from "../api";
+import { api, fmtWeight, sessionLabel, type Loadout, type PlannedExercise, type Session } from "../api";
 import { Screen } from "./Screen";
 
 const BLANK: PlannedExercise = { exercise: "", weight: 20, sets: 5, reps: 5 };
@@ -80,8 +80,11 @@ export default function Queue() {
                   <td>{e.name}</td>
                   <td className="muted small">{e.target_sets}×{e.target_reps}</td>
                   <td className="num">{fmtWeight(e.target_weight)}kg</td>
-                  <td className={`num small ${e.plates && e.plates.shortfall > 0 ? "plates short" : "muted"}`}>
-                    {plateLabel(e.plates)}
+                  {/* Same rule as Today: the loading belongs at the rack, not in
+                      a planning list. Only an unloadable weight is worth the
+                      space here, because it means the plan itself is wrong. */}
+                  <td className="num small plates short">
+                    {e.plates && e.plates.shortfall > 0 ? `${fmtWeight(e.plates.shortfall)}kg short` : ""}
                   </td>
                 </tr>
               ))}

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { fmtWeight, plateLabel, sessionLabel, type Session } from "../api";
+import { fmtWeight, sessionLabel, type Session, type SessionExercise } from "../api";
 import { useLiveSession, type SyncState } from "../useLiveSession";
 import { fmtClock, useRestTimer } from "../useRestTimer";
 import { Screen } from "./Screen";
@@ -23,7 +23,8 @@ export default function Workout() {
   const sessionId = Number(id);
   const { session, sync, error, mutate, finish } = useLiveSession(sessionId);
   const [done, setDone] = useState(false);
-  const [editing, setEditing] = useState<number | null>(null);
+  // The exercise whose plate loading is being held open, if any.
+  const [held, setHeld] = useState<SessionExercise | null>(null);
   const timer = useRestTimer();
   const nav = useNavigate();
 
@@ -38,15 +39,6 @@ export default function Workout() {
     }));
     if (reps === null) timer.stop();
     else timer.start(reps < target ? REST_MISS : REST_HIT);
-  }
-
-  function changeWeight(exId: number, weight: number) {
-    setEditing(null);
-    if (!Number.isFinite(weight) || weight < 0) return;
-    mutate((s) => ({
-      ...s,
-      exercises: s.exercises.map((e) => (e.id !== exId ? e : { ...e, target_weight: weight })),
-    }));
   }
 
   async function onFinish() {
@@ -81,8 +73,8 @@ export default function Workout() {
 
   return (
     <>
-      <Screen title={sessionLabel(session)} sub={`Session ${session.id}`}>
-        <SyncBadge state={sync} />
+      <Screen title={sessionLabel(session)}>
+        <SyncDot state={sync} />
 
         {session.exercises.map((e) => (
           <div key={e.id} className="card">
@@ -94,33 +86,28 @@ export default function Workout() {
                   {e.note && <> · {e.note}</>}
                 </div>
               </div>
+              {/* Press and hold the weight to see the loading; release to
+                  dismiss. Hold rather than tap because a tap is what you do a
+                  hundred times a session on the set circles, and it must never
+                  edit the weight — a mis-tap there with the phone in one hand
+                  would silently rewrite the plan. */}
               <div style={{ textAlign: "right" }}>
-                {editing === e.id ? (
-                  <input
-                    type="number"
-                    step="0.5"
-                    autoFocus
-                    defaultValue={e.target_weight}
-                    style={{ width: 110, textAlign: "right" }}
-                    onBlur={(ev) => changeWeight(e.id, Number(ev.currentTarget.value))}
-                    onKeyDown={(ev) => {
-                      if (ev.key === "Enter") changeWeight(e.id, Number(ev.currentTarget.value));
-                      if (ev.key === "Escape") setEditing(null);
-                    }}
-                  />
-                ) : (
-                  <button
-                    onClick={() => setEditing(e.id)}
-                    style={{ background: "none", border: "none", padding: 0, color: "inherit", cursor: "pointer" }}
-                  >
-                    <div className="weight">
-                      {fmtWeight(e.target_weight)}<span>kg</span>
-                    </div>
-                    {e.plates && (
-                      <div className={`plates${e.plates.shortfall > 0 ? " short" : ""}`}>{plateLabel(e.plates)}</div>
-                    )}
-                  </button>
-                )}
+                <button
+                  className="weight-btn"
+                  onPointerDown={() => e.plates && setHeld(e)}
+                  onPointerUp={() => setHeld(null)}
+                  onPointerLeave={() => setHeld(null)}
+                  onPointerCancel={() => setHeld(null)}
+                  onContextMenu={(ev) => ev.preventDefault()}
+                  style={{ cursor: e.plates ? "pointer" : "default" }}
+                >
+                  <div className="weight">
+                    {fmtWeight(e.target_weight)}<span>kg</span>
+                  </div>
+                  {e.plates && e.plates.shortfall > 0 && (
+                    <div className="plates short">can't load · {fmtWeight(e.plates.shortfall)}kg short</div>
+                  )}
+                </button>
               </div>
             </div>
 
@@ -143,6 +130,8 @@ export default function Workout() {
         </button>
         <div style={{ height: 100 }} />
       </Screen>
+
+      {held?.plates && <PlateOverlay exercise={held} />}
 
       {timer.running && (
         <div className={`rest${timer.remaining <= 0 ? " over" : ""}`}>
@@ -168,17 +157,118 @@ export default function Workout() {
   );
 }
 
-/** Deliberately quiet. Nothing here is an error you need to act on — the phone
- *  holds the session either way, so this is status, not a warning. */
-function SyncBadge({ state }: { state: SyncState }) {
-  if (state === "synced") return null;
-  const label =
-    state === "pending" ? "Saving…" : state === "offline" ? "Offline — saved on this phone" : "Retrying sync…";
+/**
+ * Competition plate colours, so the loading is recognisable at a glance rather
+ * than read as a list of numbers. The micro plates have no standard colour and
+ * are drawn as steel.
+ */
+const PLATE_COLOUR: Record<number, string> = {
+  25: "#e2483d",
+  20: "#3b6fd4",
+  15: "#e8c33c",
+  10: "#3fa65c",
+  5: "#e8eaed",
+  2.5: "#e2483d",
+};
+const STEEL = "#8d95a3";
+
+const plateColour = (w: number): string => PLATE_COLOUR[w] ?? STEEL;
+
+/** Plate height scaled by weight — the big ones really are much bigger, and the
+ *  silhouette is most of what makes this readable in a glance. */
+function plateHeight(w: number): number {
+  if (w >= 20) return 100;
+  if (w >= 15) return 92;
+  if (w >= 10) return 84;
+  if (w >= 5) return 68;
+  if (w >= 2.5) return 52;
+  if (w >= 1.25) return 42;
+  return 34;
+}
+
+/**
+ * Held-open view of how to load the bar. Full-screen because this is read at
+ * arm's length with a bar in front of you, and the whole point of holding it
+ * open is that you're not going to be squinting at a caption.
+ */
+function PlateOverlay({ exercise }: { exercise: SessionExercise }) {
+  const p = exercise.plates!;
+  const perSideTotal = p.perSide.reduce((a, b) => a + b, 0);
+  const bar = Math.round((p.achievable - perSideTotal * 2) * 100) / 100;
+
   return (
-    <div className="muted small" style={{ textAlign: "center", marginBottom: 10 }}>
-      {label}
+    <div className="plate-overlay">
+      <div className="plate-overlay-inner">
+        <div className="po-head">
+          <div className="po-name">{exercise.name}</div>
+          <div className="po-weight">
+            {fmtWeight(p.achievable)}<span>kg</span>
+          </div>
+          <div className="po-sum">
+            {fmtWeight(bar)}kg bar + {fmtWeight(perSideTotal)}kg per side
+          </div>
+        </div>
+
+        {/* One side of the bar, loaded inside-out — the order you actually put
+            them on. Mirroring both sides would look more like a barbell but
+            makes you count twice to get a per-side number. */}
+        <div className="po-bar">
+          <div className="po-sleeve" />
+          {p.perSide.map((w, i) => (
+            <div
+              key={i}
+              className="po-plate"
+              style={{
+                height: `${plateHeight(w)}%`,
+                background: plateColour(w),
+                color: w === 5 ? "#11151a" : "#fff",
+              }}
+            >
+              <span>{fmtWeight(w)}</span>
+            </div>
+          ))}
+          <div className="po-collar" />
+        </div>
+
+        <div className="po-foot">
+          {p.shortfall > 0 ? (
+            <span className="po-short">
+              {fmtWeight(exercise.target_weight)}kg asked for — {fmtWeight(p.shortfall)}kg short of what these plates make
+            </span>
+          ) : (
+            <span>per side · heaviest on first, collar last</span>
+          )}
+        </div>
+      </div>
     </div>
   );
+}
+
+/**
+ * A dot in the corner, and nothing more.
+ *
+ * The old text badge said "Saving…" on every single tap, which moved the page
+ * and told you nothing. This is fixed-position, so it can never shift layout,
+ * and it's always present — a green dot is a useful thing to be able to glance
+ * at, where an element that appears and disappears is just movement.
+ *
+ * green  synced        server has everything
+ * yellow pending       local edits not pushed yet
+ * orange offline       no connection; held on the phone
+ * red    error         server reachable but refusing
+ *
+ * None of these are urgent. Every state above green still means the session is
+ * safe in localStorage — the dot is for reassurance, not action.
+ */
+const SYNC_LABEL: Record<SyncState, string> = {
+  synced: "Synced",
+  pending: "Saving…",
+  offline: "Offline — saved on this phone",
+  error: "Sync failing — saved on this phone",
+};
+
+function SyncDot({ state }: { state: SyncState }) {
+  return <span className={`sync-dot ${state}`} role="status" aria-label={SYNC_LABEL[state]} title={SYNC_LABEL[state]} />;
 }
 
 export type { Session };
