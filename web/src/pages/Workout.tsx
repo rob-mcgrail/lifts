@@ -1,13 +1,18 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { fmtWeight, sessionLabel, type Session, type SessionExercise } from "../api";
+import { api, fmtWeight, sessionLabel, type Session, type SessionExercise } from "../api";
 import { useLiveSession, type SyncState } from "../useLiveSession";
-import { fmtClock, useRestTimer } from "../useRestTimer";
+import { fmtClock, useRestTimer, VOICES, type Voice } from "../useRestTimer";
 import { Screen } from "./Screen";
 
 /**
  * Tap cycle for a set: untouched → target reps → target-1 → … → 0 → untouched.
  * One thumb, no keyboard, no modal — you've just put the bar down.
+ *
+ * Tapping only ever goes down, because missing reps is the common case and
+ * wants to be one tap away. Going *above* target is a long press (see
+ * SetButton) — rarer, and worth making deliberate so it can't happen by
+ * accident while you're stabbing at the screen between sets.
  */
 function nextReps(current: number | null, target: number): number | null {
   if (current === null) return target;
@@ -15,8 +20,11 @@ function nextReps(current: number | null, target: number): number | null {
   return current - 1;
 }
 
-const REST_HIT = 90;
-const REST_MISS = 300;
+const LONG_PRESS_MS = 350;
+const REPEAT_MS = 260;
+const MAX_REPS = 100;
+
+const FALLBACK_MARKS = { ready: 90, end: 180 };
 
 export default function Workout() {
   const { id } = useParams();
@@ -25,21 +33,47 @@ export default function Workout() {
   const [done, setDone] = useState(false);
   // The exercise whose plate loading is being held open, if any.
   const [held, setHeld] = useState<SessionExercise | null>(null);
-  const timer = useRestTimer();
+  // Rest marks for the set most recently logged — a heavy single and a set of
+  // ten shouldn't get the same rest, so this follows whichever lift you tapped.
+  const [marks, setMarks] = useState(FALLBACK_MARKS);
+  const [voice, setVoice] = useState<Voice>("rhodes");
+  const timer = useRestTimer(marks, voice);
   const nav = useNavigate();
 
+  // Rest durations ride along on the session; only the tone is global.
+  useEffect(() => {
+    api
+      .settings()
+      .then((s) => VOICES.includes(s.rest_voice as Voice) && setVoice(s.rest_voice as Voice))
+      .catch(() => {});
+  }, []);
+
   // Every one of these is a local edit. Nothing here awaits the network.
-  function tap(exId: number, setId: number, current: number | null, target: number) {
-    const reps = nextReps(current, target);
-    mutate((s) => ({
-      ...s,
-      exercises: s.exercises.map((e) =>
-        e.id !== exId ? e : { ...e, sets: e.sets.map((x) => (x.id === setId ? { ...x, reps } : x)) },
-      ),
-    }));
-    if (reps === null) timer.stop();
-    else timer.start(reps < target ? REST_MISS : REST_HIT);
-  }
+  const setReps = useCallback(
+    (setId: number, reps: number | null) => {
+      mutate((s) => ({
+        ...s,
+        exercises: s.exercises.map((e) => ({
+          ...e,
+          sets: e.sets.map((x) => (x.id === setId ? { ...x, reps } : x)),
+        })),
+      }));
+    },
+    [mutate],
+  );
+
+  /** A logged set starts the rest; clearing one cancels it. */
+  const restAfter = useCallback(
+    (ex: SessionExercise, reps: number | null) => {
+      if (reps === null) {
+        timer.stop();
+        return;
+      }
+      setMarks(ex.rest ?? FALLBACK_MARKS);
+      timer.start();
+    },
+    [timer],
+  );
 
   async function onFinish() {
     timer.stop();
@@ -113,13 +147,13 @@ export default function Workout() {
 
             <div className="sets">
               {e.sets.map((s) => (
-                <button
+                <SetButton
                   key={s.id}
-                  className={`set${s.reps === null ? "" : s.reps >= e.target_reps ? " done" : " partial"}`}
-                  onClick={() => tap(e.id, s.id, s.reps, e.target_reps)}
-                >
-                  {s.reps === null ? e.target_reps : s.reps}
-                </button>
+                  reps={s.reps}
+                  target={e.target_reps}
+                  onSet={(reps) => setReps(s.id, reps)}
+                  onSettled={(reps) => restAfter(e, reps)}
+                />
               ))}
             </div>
           </div>
@@ -134,11 +168,18 @@ export default function Workout() {
       {held?.plates && <PlateOverlay exercise={held} />}
 
       {timer.running && (
-        <div className={`rest${timer.remaining <= 0 ? " over" : ""}`}>
+        <div className={`rest ${timer.phase}`}>
           <div className="rest-inner">
             <div>
-              <div className="rest-time">{fmtClock(timer.remaining)}</div>
-              <div className="muted small">{timer.remaining <= 0 ? "Rest over" : "Resting"}</div>
+              <div className="rest-time">
+                {timer.phase === "ready" && "+"}
+                {fmtClock(timer.display)}
+              </div>
+              <div className="muted small">
+                {timer.phase === "ready"
+                  ? `Ready · ${fmtClock(timer.marks.end - timer.elapsed)} until you're late`
+                  : "Resting"}
+              </div>
             </div>
             <button
               className="btn ghost"
@@ -148,12 +189,121 @@ export default function Workout() {
               Skip
             </button>
           </div>
+          {/* One bar across the whole rest, with a notch at the ready mark, so
+              both marks are visible at once rather than the bar resetting. */}
           <div className="rest-bar">
-            <i style={{ width: `${Math.max(0, Math.min(100, (timer.remaining / timer.duration) * 100))}%` }} />
+            <i style={{ width: `${Math.min(100, (timer.elapsed / timer.marks.end) * 100)}%` }} />
+            <u style={{ left: `${(timer.marks.ready / timer.marks.end) * 100}%` }} />
           </div>
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * One set circle.
+ *
+ *   tap        step down through the reps — 5 → 4 → 3 … → 0 → cleared
+ *   hold       step *up*, repeating while held, for a set that beat its target
+ *
+ * The asymmetry is deliberate. Missing reps is the ordinary case and should
+ * cost one tap; exceeding target is rarer, and a long press means it can't
+ * happen by accident. A press that turns into a hold does not also fire the
+ * tap, or every added rep would be preceded by a phantom decrement.
+ */
+function SetButton({
+  reps,
+  target,
+  onSet,
+  onSettled,
+}: {
+  reps: number | null;
+  target: number;
+  onSet: (reps: number | null) => void;
+  onSettled: (reps: number | null) => void;
+}) {
+  const heldRef = useRef(false);
+  const startTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const repeatTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Held in a ref as well as state: the repeat fires from a timer that closed
+  // over the old prop, so it needs somewhere current to read from.
+  const liveRef = useRef(reps);
+  liveRef.current = reps;
+
+  const clearTimers = useCallback(() => {
+    if (startTimer.current) clearTimeout(startTimer.current);
+    if (repeatTimer.current) clearInterval(repeatTimer.current);
+    startTimer.current = null;
+    repeatTimer.current = null;
+  }, []);
+
+  // A repeat driven by an interval only stops when a pointerup arrives, and a
+  // pointerup is not guaranteed — a scroll steals it, the browser drops it, a
+  // synthetic event never sends one. Left running it re-renders, writes
+  // localStorage and PUTs to the server several times a second, forever. So:
+  // stop on any pointer release anywhere, and on unmount, regardless of where
+  // the event lands.
+  useEffect(() => {
+    const stop = () => clearTimers();
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    window.addEventListener("blur", stop);
+    return () => {
+      clearTimers();
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      window.removeEventListener("blur", stop);
+    };
+  }, [clearTimers]);
+
+  function bump() {
+    const current = liveRef.current ?? target;
+    if (current >= MAX_REPS) {
+      clearTimers(); // nothing left to add — don't keep firing writes at the cap
+      return;
+    }
+    const next = current + 1;
+    liveRef.current = next;
+    onSet(next);
+  }
+
+  function down(e: React.PointerEvent<HTMLButtonElement>) {
+    heldRef.current = false;
+    // Capture the pointer so the release comes back to this element even if the
+    // finger drifts off it mid-hold.
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    startTimer.current = setTimeout(() => {
+      heldRef.current = true;
+      navigator.vibrate?.(30); // confirm the hold engaged — you can't see it under a thumb
+      bump();
+      repeatTimer.current = setInterval(bump, REPEAT_MS);
+    }, LONG_PRESS_MS);
+  }
+
+  function up() {
+    const wasHeld = heldRef.current;
+    clearTimers();
+    if (wasHeld) {
+      onSettled(liveRef.current);
+      return;
+    }
+    const next = nextReps(liveRef.current, target);
+    liveRef.current = next;
+    onSet(next);
+    onSettled(next);
+  }
+
+  return (
+    <button
+      className={`set${reps === null ? "" : reps > target ? " over" : reps === target ? " done" : " partial"}`}
+      onPointerDown={down}
+      onPointerUp={up}
+      onPointerCancel={clearTimers}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {reps === null ? target : reps}
+    </button>
   );
 }
 

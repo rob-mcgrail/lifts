@@ -43,18 +43,32 @@ db.seedExercises();
 // --- helpers ---
 
 /**
- * Attach the plate breakdown so the client never does maths. Only barbell
- * movements get one — a 24kg dumbbell press is not "20kg bar + 2kg a side",
- * and showing a loading for it would be actively misleading at the rack.
+ * Attach the plate breakdown and the resolved rest marks, so no client ever
+ * repeats this. Plates: only barbell movements get one — a 24kg dumbbell press
+ * is not "20kg bar + 2kg a side", and showing a loading for it would be
+ * actively misleading at the rack.
+ *
+ * Rest resolves exercise → session → global setting, per mark independently, so
+ * a session can lengthen `rest_end` without also having to restate `rest_ready`.
+ * The raw nullable columns stay on the response next to the resolved `rest`,
+ * so a caller can still tell an override from an inherited value.
  */
 function decorate(s: db.Session): db.Session & {
-  exercises: (db.SessionExerciseDetail & { plates: ReturnType<typeof platesFor> | null })[];
+  exercises: (db.SessionExerciseDetail & {
+    plates: ReturnType<typeof platesFor> | null;
+    rest: { ready: number; end: number };
+  })[];
 } {
+  const global = db.getSettings();
+  const ready = (e: db.SessionExerciseDetail) => e.rest_ready ?? s.rest_ready ?? Number(global.rest_ready);
+  const end = (e: db.SessionExerciseDetail) => e.rest_end ?? s.rest_end ?? Number(global.rest_end);
+
   return {
     ...s,
     exercises: s.exercises.map((e) => ({
       ...e,
       plates: e.kind === "barbell" ? platesFor(e.target_weight) : null,
+      rest: { ready: ready(e), end: end(e) },
     })),
   };
 }
@@ -62,6 +76,33 @@ function decorate(s: db.Session): db.Session & {
 function intParam(c: { req: { param: (k: string) => string } }, key: string): number | null {
   const n = Number(c.req.param(key));
   return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+type ParsedRest = { ok: true; ready?: number; end?: number } | { ok: false; error: string };
+
+/**
+ * Rest overrides, validated the same way wherever they appear — on a session or
+ * on one exercise. Omitted means inherit; a supplied pair must be ordered, or
+ * the timer would hit both marks at once.
+ */
+function parseRest(src: Record<string, unknown>, where: string): ParsedRest {
+  const out: { ready?: number; end?: number } = {};
+  for (const [key, field] of [
+    ["rest_ready", "ready"],
+    ["rest_end", "end"],
+  ] as const) {
+    const raw = src[key];
+    if (raw === undefined || raw === null) continue;
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 5 || n > 3600) {
+      return { ok: false, error: `${where}.${key} must be a whole number of seconds, 5-3600` };
+    }
+    out[field] = n;
+  }
+  if (out.ready !== undefined && out.end !== undefined && out.ready >= out.end) {
+    return { ok: false, error: `${where}.rest_ready must be less than ${where}.rest_end` };
+  }
+  return { ok: true, ...out };
 }
 
 type ParsedExercises = { ok: true; value: db.PlannedExerciseInput[] } | { ok: false; error: string };
@@ -83,6 +124,10 @@ function parseExercises(raw: unknown): ParsedExercises {
     if (kind && !(db.EXERCISE_KINDS as readonly string[]).includes(kind)) {
       return { ok: false, error: `exercises[${i}].kind must be one of ${db.EXERCISE_KINDS.join(", ")}` };
     }
+
+    const rest = parseRest(e, `exercises[${i}]`);
+    if (!rest.ok) return { ok: false, error: rest.error };
+
     out.push({
       exercise: slug,
       name: typeof e.name === "string" ? e.name : undefined,
@@ -91,6 +136,8 @@ function parseExercises(raw: unknown): ParsedExercises {
       sets,
       reps,
       note: typeof e.note === "string" ? e.note : undefined,
+      rest_ready: rest.ready,
+      rest_end: rest.end,
     });
   }
   return { ok: true, value: out };
@@ -111,6 +158,38 @@ const loadoutPayload = () => ({
 app.get("/api/loadout", (c) => respond(c, loadoutPayload(), md.loadout));
 
 app.get("/api/exercises", (c) => respond(c, db.listExercises(), md.exercises));
+
+// --- settings ---
+
+app.get("/api/settings", (c) => respond(c, db.getSettings(), md.settings));
+
+app.patch("/api/settings", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const allowed = Object.keys(db.SETTING_DEFAULTS);
+
+  for (const [k, v] of Object.entries(body)) {
+    if (!allowed.includes(k)) return c.json({ error: `unknown setting: ${k}` }, 400);
+    if ((db.DURATION_SETTINGS as readonly string[]).includes(k)) {
+      const n = Number(v);
+      if (!Number.isInteger(n) || n < 5 || n > 3600) {
+        return c.json({ error: `${k} must be a whole number of seconds, 5-3600` }, 400);
+      }
+    } else if (k === "rest_voice") {
+      if (!(db.REST_VOICES as readonly string[]).includes(String(v))) {
+        return c.json({ error: `rest_voice must be one of ${db.REST_VOICES.join(", ")}` }, 400);
+      }
+    }
+  }
+
+  const merged = { ...db.getSettings(), ...Object.fromEntries(Object.entries(body).map(([k, v]) => [k, String(v)])) };
+  // The ready mark has to come first, or the timer would fire both tones at once.
+  if (Number(merged.rest_ready) >= Number(merged.rest_end)) {
+    return c.json({ error: "rest_ready must be less than rest_end" }, 400);
+  }
+
+  for (const [k, v] of Object.entries(body)) db.setSetting(k, String(v));
+  return c.json(db.getSettings());
+});
 
 // --- today ---
 
@@ -173,10 +252,15 @@ app.post("/api/sessions", async (c) => {
   const parsed = parseExercises(body.exercises);
   if (!parsed.ok) return c.json({ error: parsed.error }, 400);
 
+  const rest = parseRest(body, "session");
+  if (!rest.ok) return c.json({ error: rest.error }, 400);
+
   const session = db.planSession({
     name: typeof body.name === "string" ? body.name : undefined,
     plan_note: typeof body.plan_note === "string" ? body.plan_note : undefined,
     position: typeof body.position === "number" ? body.position : undefined,
+    rest_ready: rest.ready,
+    rest_end: rest.end,
     exercises: parsed.value,
   });
   return c.json(decorate(session), 201);
@@ -198,10 +282,16 @@ app.patch("/api/sessions/:id", async (c) => {
   if (!current) return c.json({ error: "Not found" }, 404);
   if (current.status !== "planned") return c.json({ error: "Only planned sessions can be edited" }, 409);
 
+  const rest = parseRest(body, "session");
+  if (!rest.ok) return c.json({ error: rest.error }, 400);
+
   const updated = db.updatePlannedSession(id, {
     name: typeof body.name === "string" ? body.name : undefined,
     plan_note: typeof body.plan_note === "string" ? body.plan_note : undefined,
     position: typeof body.position === "number" ? body.position : undefined,
+    // Explicit null clears an override back to inheriting; undefined leaves it.
+    rest_ready: body.rest_ready === null ? null : rest.ready,
+    rest_end: body.rest_end === null ? null : rest.end,
     exercises,
   });
   return c.json(decorate(updated!));

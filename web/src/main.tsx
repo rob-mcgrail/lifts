@@ -7,6 +7,7 @@ import Workout from "./pages/Workout";
 import History from "./pages/History";
 import Progress from "./pages/Progress";
 import Queue from "./pages/Queue";
+import Sounds from "./pages/Sounds";
 
 const TABS = [
   { to: "/", label: "Today", ico: "🐷" },
@@ -24,6 +25,8 @@ function Shell() {
         <Route path="/history" element={<History />} />
         <Route path="/progress" element={<Progress />} />
         <Route path="/queue" element={<Queue />} />
+        {/* Not in the nav — a scratch page for auditioning the rest cues. */}
+        <Route path="/sounds" element={<Sounds />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 

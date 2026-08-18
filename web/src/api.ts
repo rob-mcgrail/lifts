@@ -19,6 +19,10 @@ export type SessionExercise = {
   target_sets: number;
   target_reps: number;
   note: string | null;
+  rest_ready: number | null;
+  rest_end: number | null;
+  /** Resolved by the server: exercise override, else session, else global. */
+  rest: { ready: number; end: number };
   sets: SetRow[];
   plates: Plates | null;
 };
@@ -35,6 +39,8 @@ export type Session = {
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
+  rest_ready: number | null;
+  rest_end: number | null;
   exercises: SessionExercise[];
 };
 
@@ -51,6 +57,8 @@ export type PlannedExercise = {
   sets: number;
   reps: number;
   note?: string;
+  rest_ready?: number;
+  rest_end?: number;
 };
 
 export type Loadout = {
@@ -101,6 +109,10 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ weight }),
     }),
+
+  settings: () => req<Record<string, string>>("/settings"),
+  updateSettings: (patch: Record<string, number>) =>
+    req<Record<string, string>>("/settings", { method: "PATCH", body: JSON.stringify(patch) }),
 
   progress: (slug: string) =>
     req<{ session_id: number; date: string; weight: number; target_reps: number; reps: (number | null)[]; est_1rm: number }[]>(

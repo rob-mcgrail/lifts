@@ -66,6 +66,20 @@ db.run(`CREATE TABLE IF NOT EXISTS sets (
   UNIQUE(session_exercise_id, idx)
 )`);
 
+db.run(`CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+)`);
+
+// Rest marks can be overridden per session and per exercise within a session.
+// NULL means "inherit" — exercise falls back to session, session to the global
+// setting — so an override is only ever recorded where one was actually asked
+// for, and changing the global default still moves everything that didn't opt out.
+for (const col of ["rest_ready", "rest_end"]) {
+  try { db.run(`ALTER TABLE sessions ADD COLUMN ${col} INTEGER`); } catch { /* exists */ }
+  try { db.run(`ALTER TABLE session_exercises ADD COLUMN ${col} INTEGER`); } catch { /* exists */ }
+}
+
 db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status, position)`);
 db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_finished ON sessions(finished_at DESC)`);
 db.run(`CREATE INDEX IF NOT EXISTS idx_session_exercises_session ON session_exercises(session_id)`);
@@ -94,6 +108,9 @@ export type SessionExerciseDetail = {
   target_sets: number;
   target_reps: number;
   note: string | null;
+  // NULL means inherit from the session, which in turn inherits the global setting.
+  rest_ready: number | null;
+  rest_end: number | null;
   sets: SessionSetRow[];
 };
 
@@ -109,6 +126,8 @@ export type Session = {
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
+  rest_ready: number | null;
+  rest_end: number | null;
   exercises: SessionExerciseDetail[];
 };
 
@@ -120,7 +139,44 @@ export type PlannedExerciseInput = {
   sets: number;
   reps: number;
   note?: string;
+  rest_ready?: number;
+  rest_end?: number;
 };
+
+// --- Settings ---
+
+/**
+ * A rest has two marks rather than one deadline: `rest_ready` is the point the
+ * set is recoverable from — one tone, and the clock goes green — and `rest_end`
+ * is the point you should be back under the bar, which gets three tones and
+ * ends the timer. Both in seconds, both from the moment the set was logged.
+ */
+export const SETTING_DEFAULTS = {
+  rest_ready: "90",
+  rest_end: "180",
+  rest_voice: "rhodes",
+} as const;
+
+/** Settings that are a whole number of seconds; the rest are free-form strings. */
+export const DURATION_SETTINGS = ["rest_ready", "rest_end"] as const;
+export const REST_VOICES = ["rhodes", "bell", "marimba", "beep"] as const;
+
+export type SettingKey = keyof typeof SETTING_DEFAULTS;
+
+export function getSettings(): Record<string, string> {
+  const rows = db.query<{ key: string; value: string }, []>(`SELECT key, value FROM settings`).all();
+  const out: Record<string, string> = { ...SETTING_DEFAULTS };
+  for (const r of rows) out[r.key] = r.value;
+  return out;
+}
+
+export function setSetting(key: string, value: string): void {
+  db.run(
+    `INSERT INTO settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    [key, value],
+  );
+}
 
 // --- Exercises ---
 
@@ -172,7 +228,8 @@ export function ensureExercise(slug: string, name?: string, kind?: string): Exer
 export function getSession(id: number): Session | null {
   const s = db
     .query<Omit<Session, "exercises">, [number]>(
-      `SELECT id, name, status, position, plan_note, notes, created_at, started_at, finished_at
+      `SELECT id, name, status, position, plan_note, notes, created_at, started_at, finished_at,
+              rest_ready, rest_end
          FROM sessions WHERE id = ?`,
     )
     .get(id);
@@ -181,7 +238,8 @@ export function getSession(id: number): Session | null {
   const exercises = db
     .query<Omit<SessionExerciseDetail, "sets">, [number]>(
       `SELECT se.id, se.exercise_id, e.slug, e.name, e.kind, se.position,
-              se.target_weight, se.target_sets, se.target_reps, se.note
+              se.target_weight, se.target_sets, se.target_reps, se.note,
+              se.rest_ready, se.rest_end
          FROM session_exercises se JOIN exercises e ON e.id = se.exercise_id
         WHERE se.session_id = ? ORDER BY se.position`,
     )
@@ -198,6 +256,8 @@ export function planSession(input: {
   name?: string;
   plan_note?: string;
   position?: number;
+  rest_ready?: number;
+  rest_end?: number;
   exercises: PlannedExerciseInput[];
 }): Session {
   const id = db.transaction(() => {
@@ -206,19 +266,19 @@ export function planSession(input: {
         ?.p ?? 0;
     const position = input.position ?? tail + 1;
 
-    db.run(`INSERT INTO sessions (name, plan_note, position, status) VALUES (?, ?, ?, 'planned')`, [
-      input.name ?? "",
-      input.plan_note ?? null,
-      position,
-    ]);
+    db.run(
+      `INSERT INTO sessions (name, plan_note, position, status, rest_ready, rest_end)
+       VALUES (?, ?, ?, 'planned', ?, ?)`,
+      [input.name ?? "", input.plan_note ?? null, position, input.rest_ready ?? null, input.rest_end ?? null],
+    );
     const sid = db.query<{ id: number }, []>(`SELECT last_insert_rowid() AS id`).get()!.id;
 
     input.exercises.forEach((ex, i) => {
       const e = ensureExercise(ex.exercise, ex.name, ex.kind);
       db.run(
-        `INSERT INTO session_exercises (session_id, exercise_id, position, target_weight, target_sets, target_reps, note)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [sid, e.id, i + 1, ex.weight, ex.sets, ex.reps, ex.note ?? null],
+        `INSERT INTO session_exercises (session_id, exercise_id, position, target_weight, target_sets, target_reps, note, rest_ready, rest_end)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [sid, e.id, i + 1, ex.weight, ex.sets, ex.reps, ex.note ?? null, ex.rest_ready ?? null, ex.rest_end ?? null],
       );
       const seId = db.query<{ id: number }, []>(`SELECT last_insert_rowid() AS id`).get()!.id;
       for (let k = 1; k <= ex.sets; k++) {
@@ -234,7 +294,14 @@ export function planSession(input: {
  *  history is a record of what happened, not a draft. */
 export function updatePlannedSession(
   id: number,
-  patch: { name?: string; plan_note?: string; position?: number; exercises?: PlannedExerciseInput[] },
+  patch: {
+    name?: string;
+    plan_note?: string;
+    position?: number;
+    rest_ready?: number | null;
+    rest_end?: number | null;
+    exercises?: PlannedExerciseInput[];
+  },
 ): Session | null {
   const current = getSession(id);
   if (!current) return null;
@@ -244,15 +311,18 @@ export function updatePlannedSession(
     if (patch.name !== undefined) db.run(`UPDATE sessions SET name = ? WHERE id = ?`, [patch.name, id]);
     if (patch.plan_note !== undefined) db.run(`UPDATE sessions SET plan_note = ? WHERE id = ?`, [patch.plan_note, id]);
     if (patch.position !== undefined) db.run(`UPDATE sessions SET position = ? WHERE id = ?`, [patch.position, id]);
+    // null is meaningful here — it clears an override back to inheriting.
+    if (patch.rest_ready !== undefined) db.run(`UPDATE sessions SET rest_ready = ? WHERE id = ?`, [patch.rest_ready, id]);
+    if (patch.rest_end !== undefined) db.run(`UPDATE sessions SET rest_end = ? WHERE id = ?`, [patch.rest_end, id]);
 
     if (patch.exercises) {
       db.run(`DELETE FROM session_exercises WHERE session_id = ?`, [id]);
       patch.exercises.forEach((ex, i) => {
         const e = ensureExercise(ex.exercise, ex.name, ex.kind);
         db.run(
-          `INSERT INTO session_exercises (session_id, exercise_id, position, target_weight, target_sets, target_reps, note)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [id, e.id, i + 1, ex.weight, ex.sets, ex.reps, ex.note ?? null],
+          `INSERT INTO session_exercises (session_id, exercise_id, position, target_weight, target_sets, target_reps, note, rest_ready, rest_end)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [id, e.id, i + 1, ex.weight, ex.sets, ex.reps, ex.note ?? null, ex.rest_ready ?? null, ex.rest_end ?? null],
         );
         const seId = db.query<{ id: number }, []>(`SELECT last_insert_rowid() AS id`).get()!.id;
         for (let k = 1; k <= ex.sets; k++) {

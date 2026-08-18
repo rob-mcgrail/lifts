@@ -185,6 +185,20 @@ export function log(sets: LoggedSet[]): string {
   ].join("\n");
 }
 
+export function settings(s: Record<string, string>): string {
+  return join([
+    "# Settings",
+    "",
+    table(
+      ["Key", "Value", "Meaning"],
+      [
+        ["rest_ready", `${s.rest_ready}s`, "one tone, clock turns green — set is recoverable from"],
+        ["rest_end", `${s.rest_end}s`, "three tones, timer ends — get back under the bar"],
+      ],
+    ),
+  ]);
+}
+
 export function exercises(list: { slug: string; name: string; kind: string }[]): string {
   return [
     `# Exercises (${list.length})`,

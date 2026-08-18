@@ -13,7 +13,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 
 PORT="${HOST_PORT:-4760}"
 STOP_TIMEOUT=30
-KEEP_BACKUPS=20
+KEEP_BACKUPS=5
 DO_PULL=1
 DO_BACKUP=1
 
@@ -57,9 +57,35 @@ compose() {
 command -v docker >/dev/null 2>&1 || die "docker not found"
 [ -f docker-compose.yml ] || die "no docker-compose.yml here — is this the lifts repo?"
 
+# ------------------------------------------------------------------ pull
+if [ "$DO_PULL" = 1 ]; then
+  say "Pulling"
+  if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+    warn "working tree has local changes:"
+    git status --short | sed 's/^/    /'
+    warn "pulling anyway with --ff-only; it will abort rather than merge over them"
+  fi
+  BEFORE="$(git rev-parse --short HEAD)"
+  git pull --ff-only
+  AFTER="$(git rev-parse --short HEAD)"
+  if [ "$BEFORE" = "$AFTER" ]; then
+    # Nothing new, so there is nothing to deploy. Stop rather than rebuild and
+    # bounce the container for no reason — restarting drops the running session
+    # for anyone mid-workout. Use --no-pull to force a rebuild of what's here.
+    echo "  already up to date at $AFTER"
+    say "Nothing to do"
+    echo "  (use ./update.sh --no-pull to rebuild and restart anyway)"
+    exit 0
+  fi
+  echo "  $BEFORE → $AFTER"
+  git --no-pager log --oneline "$BEFORE..$AFTER" | sed 's/^/    /'
+fi
+
 # ---------------------------------------------------------------- backup
-# Do this first and against the *running* container, so if anything later goes
-# wrong there's a consistent copy from before it started.
+# After the pull (so a no-op update does nothing at all) but before anything
+# that stops or replaces the container, and taken against the still-running one
+# — so if the rest of this goes wrong there's a consistent copy from before it
+# started.
 if [ "$DO_BACKUP" = 1 ] && compose ps --status running --quiet web >/dev/null 2>&1 \
    && [ -n "$(compose ps --status running --quiet web 2>/dev/null)" ]; then
   say "Backing up the database"
@@ -80,25 +106,6 @@ if [ "$DO_BACKUP" = 1 ] && compose ps --status running --quiet web >/dev/null 2>
   fi
 else
   [ "$DO_BACKUP" = 1 ] && echo "  (nothing running to back up)"
-fi
-
-# ------------------------------------------------------------------ pull
-if [ "$DO_PULL" = 1 ]; then
-  say "Pulling"
-  if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
-    warn "working tree has local changes:"
-    git status --short | sed 's/^/    /'
-    warn "pulling anyway with --ff-only; it will abort rather than merge over them"
-  fi
-  BEFORE="$(git rev-parse --short HEAD)"
-  git pull --ff-only
-  AFTER="$(git rev-parse --short HEAD)"
-  if [ "$BEFORE" = "$AFTER" ]; then
-    echo "  already up to date at $AFTER"
-  else
-    echo "  $BEFORE → $AFTER"
-    git --no-pager log --oneline "$BEFORE..$AFTER" | sed 's/^/    /'
-  fi
 fi
 
 # ----------------------------------------------------------------- build
@@ -128,10 +135,12 @@ for i in $(seq 1 45); do
       echo "  ✓ production mode"
     fi
 
-    # `|| true` matters: grep exits 1 when the queue is empty, and under
+    # Count sessions, not `"id":` fields — exercises and sets carry ids too, so
+    # the obvious grep reports a number several times too large.
+    # `|| true` matters: grep exits 1 on an empty queue, and under
     # `set -o pipefail` that would fail the whole script after a good deploy.
     QUEUED=$(curl -fsS -m 5 "http://localhost:${PORT}/api/queue" 2>/dev/null \
-      | grep -o '"id":' | wc -l | tr -d ' ' || true)
+      | grep -o '"status":"planned"' | wc -l | tr -d ' ' || true)
     echo "  ✓ ${QUEUED:-0} session(s) queued"
     say "Done"
     exit 0

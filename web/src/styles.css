@@ -170,9 +170,20 @@ main { padding: 0 18px; flex: 1; }
   box-shadow: 0 8px 28px rgba(0,0,0,0.45);
 }
 .rest-time { font-size: 27px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
-.rest.over .rest-time { color: var(--accent); }
-.rest-bar { height: 3px; border-radius: 2px; background: var(--line); margin-top: 8px; overflow: hidden; }
-.rest-bar i { display: block; height: 100%; background: var(--accent); transition: width 1s linear; }
+.rest.ready .rest-time { color: var(--accent); }
+.rest-bar { position: relative; height: 3px; border-radius: 2px; background: var(--line); margin-top: 8px; overflow: hidden; }
+.rest-bar i { display: block; height: 100%; background: var(--muted); transition: width 1s linear, background 0.3s ease; }
+.rest.ready .rest-bar i { background: var(--accent); }
+/* The notch marks where the first tone fires, so both marks read at a glance. */
+.rest-bar u {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: var(--text);
+  opacity: 0.5;
+  transform: translateX(-1px);
+}
 
 /* --- misc --- */
 
@@ -340,4 +351,12 @@ label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 5px
   -webkit-user-select: none;
   -webkit-touch-callout: none;
   touch-action: manipulation;
+}
+
+/* A set that beat its target reads differently from one that merely met it —
+   filled rather than outlined, so an AMRAP stands out in the row. */
+.set.over {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #06210f;
 }

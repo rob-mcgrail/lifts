@@ -86,12 +86,12 @@ curl -s "$LIFTS/api/loadout?format=md"
 ```
 # Loadout
 
-Bar 20kg. Smallest total step 0.5kg. Max loadable 135kg.
+Bar 20kg. Smallest total step 0.5kg. Max loadable 175kg.
 
 | Plate  | Per side | Pair adds |
 | ------ | -------- | --------- |
 | 20kg   | 1        | 40kg      |
-| 10kg   | 2        | 20kg      |
+| 10kg   | 4        | 20kg      |
 | 5kg    | 2        | 10kg      |
 | 2.5kg  | 1        | 5kg       |
 | 1.25kg | 2        | 2.5kg     |
@@ -103,7 +103,7 @@ Bar 20kg. Smallest total step 0.5kg. Max loadable 135kg.
 
 Three rules follow:
 
-- **Stay at or below `max_loadable`** (currently 135kg). Above it the bar simply
+- **Stay at or below `max_loadable`** (currently 175kg). Above it the bar simply
   cannot be loaded.
 - **Use whole multiples of `min_increment`** (currently 0.5kg). The plate set
   goes down to 0.25kg per side, so 0.5kg total steps are available — you are not
@@ -166,11 +166,79 @@ curl -s -X POST "$LIFTS/api/sessions" \
 | `exercises[].sets` | **yes** | Integer 1–20. |
 | `exercises[].reps` | **yes** | Integer 1–100. Target reps per set. |
 | `exercises[].note` | no | Per-movement cue. |
+| `exercises[].rest_ready` | no | Rest override for this lift. See below. |
+| `exercises[].rest_end` | no | Rest override for this lift. See below. |
+| `rest_ready` | no | Rest override for the whole session. |
+| `rest_end` | no | Rest override for the whole session. |
 
 Sessions run in queue order. Queue several at once to lay out a week or a block.
 
 `plan_note` is worth using properly. The human sees it on the Today screen before
 they lift, and it is the only channel you have to explain *why* a weight changed.
+
+### Rest timers
+
+A rest has **two marks**, not one deadline:
+
+| Mark | Default | What happens |
+|---|---|---|
+| `rest_ready` | 90s | One tone, the clock turns green. The set is recoverable from — go whenever you like. |
+| `rest_end` | 180s | Three tones, the timer ends. You should be back under the bar. |
+
+Both are whole seconds, 5–3600, measured from the moment a set is logged, and
+`rest_ready` must be **less than** `rest_end` or the request is rejected.
+
+They resolve through **three levels**, each mark independently:
+
+```
+exercise override  →  session override  →  global setting
+```
+
+So a session can lengthen `rest_end` without restating `rest_ready`, and a
+single lift inside it can override either again. `null` at any level means
+"inherit"; only set a value where you actually want to depart from the default.
+
+```bash
+# Global defaults
+curl -s "$LIFTS/api/settings?format=md"
+curl -s -X PATCH "$LIFTS/api/settings" \
+  -H 'Content-Type: application/json' \
+  -d '{"rest_ready": 120, "rest_end": 240}'
+```
+
+Set them per session and per lift when planning — a heavy triple and a set of
+ten have no business waiting the same amount of time:
+
+```bash
+curl -s -X POST "$LIFTS/api/sessions" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "Day 2",
+    "rest_ready": 150, "rest_end": 300,
+    "exercises": [
+      { "exercise": "deadlift", "weight": 150, "sets": 3, "reps": 5,
+        "rest_ready": 180, "rest_end": 360 },
+      { "exercise": "ohp", "weight": 50, "sets": 3, "reps": 5 },
+      { "exercise": "ohp", "weight": 30, "sets": 2, "reps": 10,
+        "rest_ready": 60, "rest_end": 120, "note": "back-off" }
+    ]
+  }'
+```
+
+In that session the deadlift rests 180/360, the working OHP inherits the
+session's 150/300, and the back-off set drops to 60/120.
+
+Every read that returns exercises includes a resolved `rest` object alongside
+the raw nullable columns, so you can tell an override from an inherited value
+without recomputing the chain yourself:
+
+```json
+{ "rest_ready": 180, "rest_end": 360, "rest": { "ready": 180, "end": 360 } }
+{ "rest_ready": null, "rest_end": null, "rest": { "ready": 150, "end": 300 } }
+```
+
+To clear an override back to inheriting, `PATCH` the session with an explicit
+`null`.
 
 ### Editing and removing
 
@@ -256,6 +324,8 @@ Reads accept `?format=md`.
 | GET | `/api/context` | Everything needed to plan, in one call. |
 | GET | `/api/loadout` | Bar, plates, min increment, max loadable. |
 | GET | `/api/exercises` | Movement catalogue. |
+| GET | `/api/settings` | Global rest defaults. |
+| PATCH | `/api/settings` | Change them. |
 | GET | `/api/today` | Active session, else next queued. |
 | GET | `/api/queue` | Planned sessions, in order. |
 | GET | `/api/history?limit=` | Completed sessions with volume. |
