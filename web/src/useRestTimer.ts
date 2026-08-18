@@ -76,9 +76,13 @@ function rhodesNote(ctx: AudioContext, out: AudioNode, at: number, freq: number,
   carrier.type = "sine";
   carrier.frequency.value = freq;
 
+  // Two-stage decay, the way a real tine behaves: a quick drop off the strike,
+  // then a long quiet tail. A single exponential to silence either cuts the
+  // ring short or leaves the attack sounding soft.
   const amp = ctx.createGain();
   amp.gain.setValueAtTime(0, at);
   amp.gain.linearRampToValueAtTime(level, at + 0.006);
+  amp.gain.exponentialRampToValueAtTime(level * 0.32, at + Math.min(0.7, decay * 0.18));
   amp.gain.exponentialRampToValueAtTime(0.0001, at + decay);
   carrier.connect(amp);
   amp.connect(out);
@@ -110,9 +114,25 @@ function rhodesNote(ctx: AudioContext, out: AudioNode, at: number, freq: number,
   }
 }
 
-/** Rolled slightly, like a hand rather than a trigger. */
-function rhodesChord(ctx: AudioContext, out: AudioNode, at: number, notes: number[], level: number, decay: number) {
-  notes.forEach((n, i) => rhodesNote(ctx, out, at + i * 0.014, midi(n), level, decay));
+/**
+ * Rolled, like a hand rather than a trigger. `roll` is the gap between note
+ * starts — big enough to hear as an arpeggio, small enough to still land as one
+ * chord. Lower notes come in slightly stronger, as they would under a hand.
+ */
+function rhodesChord(
+  ctx: AudioContext,
+  out: AudioNode,
+  at: number,
+  notes: number[],
+  level: number,
+  decay: number,
+  roll = 0.08,
+) {
+  notes.forEach((n, i) => {
+    // Each successive note a touch quieter, so the roll has a direction.
+    const voiceLevel = level * (1 - i * 0.06);
+    rhodesNote(ctx, out, at + i * roll, midi(n), voiceLevel, decay);
+  });
 }
 
 // Cmaj9 with no root — lush and unresolved, which is the right feeling for
@@ -131,9 +151,11 @@ export function playCue(ctx: AudioContext, which: "ready" | "end", voice: Voice)
   const t = ctx.currentTime + 0.02;
 
   if (voice === "rhodes") {
-    // A little bus so a five-note chord doesn't clip, plus the top taken off.
+    // A bus so overlapping notes don't clip — with a long ring and a slow roll
+    // the whole chord is sounding at once for several seconds — plus the top
+    // taken off, which is most of what makes it sound like an instrument.
     const bus = ctx.createGain();
-    bus.gain.value = 0.5;
+    bus.gain.value = 0.42;
     const tone = ctx.createBiquadFilter();
     tone.type = "lowpass";
     tone.frequency.value = 5200;
@@ -141,9 +163,15 @@ export function playCue(ctx: AudioContext, which: "ready" | "end", voice: Voice)
     tone.connect(ctx.destination);
 
     if (which === "ready") {
-      rhodesChord(ctx, bus, t, READY_CHORD, 0.3, 2.2);
+      // Slow roll and a long tail: this one is permission, not an alert, so it
+      // gets to unfold and ring out.
+      rhodesChord(ctx, bus, t, READY_CHORD, 0.3, 5.5, 0.11);
     } else {
-      END_CHORDS.forEach((chord, i) => rhodesChord(ctx, bus, t + i * 0.3, chord, 0.28, i === 2 ? 2.6 : 0.85));
+      // The ii–V–I moves, so its chords are tighter — a slow roll on each would
+      // smear the progression. The resolution still gets a long ring.
+      END_CHORDS.forEach((chord, i) =>
+        rhodesChord(ctx, bus, t + i * 0.34, chord, 0.28, i === 2 ? 5.5 : 1.1, 0.035),
+      );
     }
     return;
   }
