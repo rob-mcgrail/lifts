@@ -238,6 +238,9 @@ read the training history, queue sessions, and delete past ones.
 
 ## Not built yet
 
+See `TODO.md` for the ordered list and the reasoning. Next up is bodyweight
+exercises: count-up sets that show the last session's count as a ghost target.
+
 - The embedded chat / agent surface. `GET /api/context` and `POST /api/sessions`
   are the two endpoints it needs; the shape is deliberately ready for it.
 - A service worker. Immutable bundle caching means a reload mostly works from
