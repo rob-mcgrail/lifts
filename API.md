@@ -4,13 +4,14 @@ You are talking to a personal lifting tracker over HTTP. This document is writte
 for an agent driving it with `curl`: planning upcoming workouts, reading past
 ones, and analysing them.
 
-Base URL below is the home server. Adjust as needed.
-
 ```bash
-LIFTS=http://localhost:4760
+LIFTS=https://lifts.office-computer-online-worldwide.org   # production
+LIFTS=http://localhost:4760                                # local dev
 ```
 
-There is no authentication. It is a LAN service.
+> **Authentication is not implemented yet.** Until it is, treat this as an open
+> endpoint on a public domain and do not put anything in it you wouldn't publish.
+> When auth lands, this section will describe how to present a credential.
 
 ---
 

@@ -1,0 +1,23 @@
+# Add this block to the homelab-cluster Caddyfile.
+#
+# lifts runs as its own compose project rather than inside the homelab stack, so
+# Caddy reaches it over the host gateway rather than by service name — the same
+# pattern already used for pihole. Nothing in homelab-cluster/docker-compose.yml
+# needs to change.
+#
+# The literal hostname is used rather than {$DOMAIN}: this is a different zone
+# from the rest of the homelab.
+#
+# Prerequisite: ACME here is DNS-01 via Cloudflare (`acme_dns cloudflare`), so
+# CLOUDFLARE_API_TOKEN must carry Zone:DNS:Edit on
+# office-computer-online-worldwide.org as well as the homelab zone. Without it
+# the certificate order fails and the site never comes up — that is the single
+# most likely thing to go wrong on first deploy. Caddy publishes only :443, so
+# there is no HTTP-01 fallback to save you.
+
+lifts.office-computer-online-worldwide.org {
+	# Compression is handled by the app (Hono's compress middleware), so no
+	# `encode` directive here — the bundle already arrives gzipped and
+	# double-encoding would only cost CPU.
+	reverse_proxy host.docker.internal:4760
+}

@@ -201,10 +201,46 @@ queue, recent work and history in a single request before planning.
 A started session can't be edited via `PATCH /api/sessions/:id`. History is a
 record of what happened, not a draft.
 
+## Deployment
+
+Production is **https://lifts.office-computer-online-worldwide.org**, on the home
+server, fronted by the Caddy instance in `homelab-cluster`.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
+The prod overlay sets `NODE_ENV=production` (prebuilt, compressed SPA) and drops
+`--watch`. Running the base compose alone on the server gives you the dev path —
+uncompressed, ~20× the bytes — which is easy to do by accident.
+
+lifts is its **own compose project**, not part of the homelab stack, so Caddy
+reaches it over the host gateway (`host.docker.internal:4760`) rather than by
+service name — the same pattern as pihole. `deploy/Caddyfile.snippet` is the
+block to paste into the homelab Caddyfile; nothing in that stack needs changing.
+
+Two things to know:
+
+- ACME there is **DNS-01 via Cloudflare**, and Caddy publishes only `:443` — so
+  there is no HTTP-01 fallback. `CLOUDFLARE_API_TOKEN` must have Zone:DNS:Edit on
+  `office-computer-online-worldwide.org`, not just the homelab zone. This is the
+  most likely first-deploy failure.
+- Port 4760 has to be published on the host for the gateway route to work, which
+  also means the app is reachable directly over the LAN on that port, bypassing
+  Caddy and TLS.
+
+### No authentication — deliberate
+
+Every endpoint is open, including writes and `DELETE /api/sessions/:id`, on a
+public domain. This is a considered decision, not an oversight: don't "fix" it by
+adding auth unprompted. The exposure is that anyone who resolves the name can
+read the training history, queue sessions, and delete past ones.
+
 ## Not built yet
 
 - The embedded chat / agent surface. `GET /api/context` and `POST /api/sessions`
   are the two endpoints it needs; the shape is deliberately ready for it.
 - A service worker. Immutable bundle caching means a reload mostly works from
   cache, but the app shell isn't genuinely offline yet.
-- Auth. Currently open on the LAN.
+- A web manifest. Now that it's on HTTPS, home-screen install becomes worthwhile
+  — it's what gives the rest timer a fullscreen surface and real notifications.

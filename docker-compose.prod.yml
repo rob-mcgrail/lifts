@@ -1,0 +1,24 @@
+# Production overlay. Use with:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Two things differ from dev, and both matter:
+#
+#   NODE_ENV=production  — serves the prebuilt, minified, compressed SPA from
+#                          dist/web through Hono instead of bundling live. ~83KB
+#                          gzipped against ~1.6MB uncompressed. This is the
+#                          difference between usable and not on gym wifi.
+#
+#   no --watch           — the base compose runs `bun --watch` so edits go live.
+#                          On the server that is just a file watcher waiting to
+#                          restart the process under you.
+#
+# dist/web is baked into the image and deliberately NOT bind-mounted, so it can't
+# be shadowed by a stale local build.
+
+services:
+  web:
+    command: bun src/index.ts
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
