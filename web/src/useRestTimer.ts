@@ -95,6 +95,36 @@ function silentWavUrl(seconds = 1): string {
   return URL.createObjectURL(new Blob([view.buffer], { type: "audio/wav" }));
 }
 
+/**
+ * Best-effort notification. Never throws.
+ *
+ * `new Notification()` is an **illegal constructor on Android Chrome** — it
+ * requires ServiceWorkerRegistration.showNotification() instead, and throws a
+ * TypeError if you call it directly. Thrown from inside the timer's effect that
+ * took React's whole tree down with it: the screen went black mid-session and
+ * only a reload brought it back. There is no service worker yet, so on Android
+ * this simply does nothing, which is the correct outcome — the tone, the
+ * vibration and the colour change are all still there.
+ */
+function notify(title: string, body: string) {
+  try {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    new Notification(title, { body, tag: "lifts-rest" });
+  } catch {
+    /* Android Chrome, or notifications disabled at the OS level */
+  }
+}
+
+function requestNotifications() {
+  try {
+    if ("Notification" in window && Notification.permission === "default") {
+      void Notification.requestPermission();
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 const midi = (n: number) => 440 * Math.pow(2, (n - 69) / 12);
 
 /**
@@ -258,8 +288,52 @@ export function playCue(ctx: AudioContext, which: "ready" | "end", voice: Voice,
  * while the tab is foregrounded, and a silent looping audio element keeps the
  * page from being frozen when it isn't.
  */
+/**
+ * A rest survives a reload. It's wall-clock anyway, so all that's needed is the
+ * moment it started and the marks it was running to — and losing ninety seconds
+ * of rest because the tab reloaded is exactly the sort of thing that makes you
+ * stop trusting the app mid-session.
+ */
+const REST_KEY = "lifts.rest";
+
+type StoredRest = { startedAt: number; marks: RestMarks; key: number; fired: RestPhase[] };
+
+function persist(startedAt: number, marks: RestMarks, fired: RestPhase[]) {
+  try {
+    localStorage.setItem(REST_KEY, JSON.stringify({ startedAt, marks, key: 0, fired } satisfies StoredRest));
+  } catch {
+    /* ignore */
+  }
+}
+
+function forget() {
+  try {
+    localStorage.removeItem(REST_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadRest(): StoredRest | null {
+  try {
+    const raw = localStorage.getItem(REST_KEY);
+    if (!raw) return null;
+    const r = JSON.parse(raw) as StoredRest;
+    // Only resume something still running; a finished rest is just noise.
+    if (typeof r?.startedAt !== "number" || !r.marks) return null;
+    if ((Date.now() - r.startedAt) / 1000 >= r.marks.end) {
+      localStorage.removeItem(REST_KEY);
+      return null;
+    }
+    return r;
+  } catch {
+    return null;
+  }
+}
+
 export function useRestTimer(marks: RestMarks, voice: Voice = "rhodes") {
-  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const stored = useRef<StoredRest | null>(loadRest());
+  const [startedAt, setStartedAt] = useState<number | null>(stored.current?.startedAt ?? null);
   const [now, setNow] = useState(() => Date.now());
   const firedRef = useRef<Set<RestPhase>>(new Set());
   const wakeRef = useRef<WakeLockSentinel | null>(null);
@@ -268,8 +342,13 @@ export function useRestTimer(marks: RestMarks, voice: Voice = "rhodes") {
   // The key this rest is in. Rolled at start() so both cues agree.
   const keyRef = useRef(0);
 
-  const marksRef = useRef(marks);
-  marksRef.current = marks;
+  // A resumed rest keeps the marks it was started with, not whatever exercise
+  // happens to be rendering now.
+  const marksRef = useRef(stored.current?.marks ?? marks);
+  marksRef.current = stored.current?.marks ?? marks;
+
+  // Don't re-fire a cue that already sounded before the reload.
+  if (stored.current) firedRef.current = new Set(stored.current.fired);
 
   // Tick once per second, scheduled to land just after `elapsed` actually rolls
   // over. A fixed 250ms interval re-rendered the whole workout tree four times
@@ -339,9 +418,12 @@ export function useRestTimer(marks: RestMarks, voice: Voice = "rhodes") {
   );
 
   const start = useCallback(() => {
+    stored.current = null;
     firedRef.current = new Set();
     keyRef.current = randomKey();
-    setStartedAt(Date.now());
+    const at = Date.now();
+    persist(at, marksRef.current, []);
+    setStartedAt(at);
     setNow(Date.now());
     void acquireKeepAwake();
     // Warm the audio context on the gesture that started the rest, so the tone
@@ -351,12 +433,12 @@ export function useRestTimer(marks: RestMarks, voice: Voice = "rhodes") {
     } catch {
       /* ignore */
     }
-    if ("Notification" in window && Notification.permission === "default") {
-      void Notification.requestPermission();
-    }
+    void requestNotifications();
   }, [acquireKeepAwake]);
 
   const stop = useCallback(() => {
+    stored.current = null;
+    forget();
     setStartedAt(null);
     releaseKeepAwake();
   }, [releaseKeepAwake]);
@@ -378,20 +460,20 @@ export function useRestTimer(marks: RestMarks, voice: Voice = "rhodes") {
       fired.add("ready");
       tone("ready");
       navigator.vibrate?.(180);
-      if ("Notification" in window && Notification.permission === "granted") {
-        new Notification("Ready", { body: "Rest is up whenever you are.", tag: "lifts-rest" });
-      }
+      notify("Ready", "Rest is up whenever you are.");
     }
 
     if (elapsed >= end && !fired.has("done")) {
       fired.add("done");
       tone("end");
       navigator.vibrate?.([180, 120, 180, 120, 180]);
-      if ("Notification" in window && Notification.permission === "granted") {
-        new Notification("Back under the bar", { body: "Next set.", tag: "lifts-rest" });
-      }
+      notify("Back under the bar", "Next set.");
       releaseKeepAwake();
+      stored.current = null;
+      forget();
       setStartedAt(null);
+    } else if (startedAt !== null) {
+      persist(startedAt, marksRef.current, [...fired]);
     }
   }, [startedAt, elapsed, tone, releaseKeepAwake]);
 

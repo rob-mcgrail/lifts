@@ -90,6 +90,15 @@ rewritable through the sync path.
 Never make a tap await the network. Bad wifi is the normal case, not the edge
 case.
 
+**Nothing in a rest cue may throw.** `new Notification()` is an illegal
+constructor on Android Chrome — it demands `ServiceWorkerRegistration
+.showNotification()` — and calling it from the timer's effect took React's whole
+tree down mid-session, leaving a black screen that only a reload cleared. It's
+wrapped now, and `ErrorBoundary` sits above the router so the next thing that
+throws costs a screen rather than the session. The rest itself survives a reload
+(`lifts.rest` in localStorage): it's wall-clock, so only the start time and its
+marks need keeping.
+
 ## Plates
 
 `src/plates.ts` holds the gym's actual bar and plates as a hardcoded `LOADOUT`,
@@ -117,6 +126,10 @@ planned `reps` when there's no history. It's computed only where it's shown
 (today, queue, session detail) and only for bodyweight movements: `previousCounts`
 is two queries regardless of how many movements are asked about, but calling it
 from a `listHistory` that decorates fifty sessions would still be waste.
+
+Nothing colours a bodyweight set red either. Under last time is `logged`, not a
+miss — the UI has to agree with the data model, and the data model is explicit
+that there's no target to fall short of.
 
 Nothing claims a bodyweight set "hit" or "missed" — there's no target to judge
 it against, so history and `/api/log` say `logged` and leave the comparison to

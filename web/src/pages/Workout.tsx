@@ -475,8 +475,12 @@ function CountButton({
     onSettled(next);
   }
 
+  // Beating or matching last time is worth celebrating; coming in under it is
+  // not a failure. A bodyweight set has no target to miss — history and
+  // /api/log both say "logged" rather than hit/miss — so colouring it red like
+  // a failed barbell set would contradict what the rest of the app says.
   const state =
-    reps === null ? "" : ghost === null ? " done" : reps > ghost ? " over" : reps === ghost ? " done" : " partial";
+    reps === null ? "" : ghost === null || reps >= ghost ? (reps > (ghost ?? 0) ? " over" : " done") : " logged";
 
   return (
     <button

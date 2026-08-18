@@ -414,7 +414,19 @@ label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 5px
    Counting up rather than down, so an unlogged circle shows what you managed
    last time as a ghost — the number you're chasing. */
 
-.set.count .ghost { color: var(--line); font-weight: 500; }
+/* An unlogged count circle needs to be obviously there. The ghost was drawn in
+   --line, barely a shade off the card behind it, so a set of pull-ups you
+   hadn't done yet read as empty space. Both the ring and the number are lifted
+   well clear of the card — brighter than the default set outline, not dimmer. */
+.set.count { border-color: #3a4553; }
+.set.count .ghost { color: var(--muted); font-weight: 500; opacity: 0.8; }
+
+/* Logged, but under last time. Not a miss — a bodyweight set has no target to
+   fall short of — so it reads as plainly recorded rather than failed. */
+.set.logged {
+  border-color: var(--muted);
+  color: var(--text);
+}
 
 /* Adding a set is a lesser action than logging one, so it reads as an outline
    rather than another countable circle. */

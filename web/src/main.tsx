@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-dom";
 import "./styles.css";
+import { ErrorBoundary } from "./ErrorBoundary";
 import Today from "./pages/Today";
 import Workout from "./pages/Workout";
 import History from "./pages/History";
@@ -44,8 +45,10 @@ function Shell() {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <BrowserRouter>
-      <Shell />
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <Shell />
+      </BrowserRouter>
+    </ErrorBoundary>
   </StrictMode>,
 );
