@@ -1,0 +1,32 @@
+name: lifts
+
+secrets:
+  cloudflare_cert:
+    file: ${CLOUDFLARE_CERT:-/dev/null}
+
+services:
+  web:
+    build:
+      context: .
+      secrets:
+        - cloudflare_cert
+    command: bun --watch src/index.ts
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-4760}:3000"
+    volumes:
+      # Bind-mount source so edits go live: src/* watched by Bun, web/* bundled
+      # on the fly by Bun.serve's HTML routes (HMR in dev). data/* is the SQLite
+      # store.
+      - ./src:/app/src
+      - ./web:/app/web
+      - ./data:/app/data
+    environment:
+      - DATABASE_PATH=/app/data/lifts.sqlite
+      - PORT=3000
+      - BASE_URL=${BASE_URL:-http://localhost:4760}
+      - NODE_ENV=${NODE_ENV:-development}
+      # Workout dates bucket by local time — a late-night session must not land
+      # on tomorrow's date.
+      - TZ=${TZ:-Pacific/Auckland}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
