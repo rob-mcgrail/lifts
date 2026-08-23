@@ -67,6 +67,34 @@ export default function Workout() {
   );
 
   /**
+   * Tick a walk in this session off, or back on.
+   *
+   * Local only, like everything else here. `performed_at` is what marks a walk
+   * done, and the string written here is a placeholder — the server stamps the
+   * authoritative time with COALESCE on the next push, so a re-send never moves
+   * it. Ticking a walk with a plan also adopts the planned numbers as the actual
+   * ones: in the garage, one tap should mean "I did the walk I was told to do".
+   */
+  const toggleWalk = useCallback(
+    (walkId: number) => {
+      mutate((s) => ({
+        ...s,
+        walks: s.walks.map((w) => {
+          if (w.id !== walkId) return w;
+          if (w.performed_at) return { ...w, performed_at: null };
+          return {
+            ...w,
+            performed_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+            minutes: w.minutes ?? w.target_minutes,
+            km: w.km ?? w.target_km,
+          };
+        }),
+      }));
+    },
+    [mutate],
+  );
+
+  /**
    * The rest belongs to the set that started it. Every press on *that* set is
    * ignored — adding a rep, taking one off, clearing it and putting it back —
    * because it's all bookkeeping about a set you already finished, and you've
@@ -166,7 +194,11 @@ export default function Workout() {
     );
   }
 
-  const allLogged = session.exercises.every((e) => e.sets.every((s) => s.reps !== null));
+  // An un-walked walk leaves the session unfinished the same way an un-logged
+  // set does — it's an item on the list, not a footnote.
+  const allLogged =
+    session.exercises.every((e) => e.sets.every((s) => s.reps !== null)) &&
+    session.walks.every((w) => w.performed_at !== null);
 
   const loggedCount = session.exercises.reduce(
     (n, e) => n + e.sets.filter((s) => s.reps !== null).length,
@@ -257,6 +289,32 @@ export default function Workout() {
                   +
                 </button>
               )}
+            </div>
+          </div>
+        ))}
+
+        {/* Walks come last, because that's where they are in the session — the
+            treadmill stint after the lifting, when you're already changed and
+            already here. There is no set circle and no target to fall short of:
+            a walk is done or it isn't. */}
+        {session.walks.map((w) => (
+          <div key={w.id} className={`card walk${w.performed_at ? " done" : ""}`}>
+            <div className="row">
+              <div>
+                <h2>{w.surface === "treadmill" ? "Treadmill walk" : "Walk"}</h2>
+                <div className="muted small">
+                  {walkPlan(w) || "no target"}
+                  {w.note && <> · {w.note}</>}
+                </div>
+              </div>
+              <button
+                className={`walk-tick${w.performed_at ? " on" : ""}`}
+                onClick={() => toggleWalk(w.id)}
+                aria-pressed={w.performed_at !== null}
+                aria-label={w.performed_at ? "Walk done — tap to undo" : "Mark walk done"}
+              >
+                {w.performed_at ? "✓" : "walk"}
+              </button>
             </div>
           </div>
         ))}
@@ -610,6 +668,15 @@ const SYNC_LABEL: Record<SyncState, string> = {
   offline: "Offline — saved on this phone",
   error: "Sync failing — saved on this phone",
 };
+
+/** "20 min · 8%" — the plan for a walk, in whatever terms it was planned. */
+function walkPlan(w: { target_minutes: number | null; target_km: number | null; incline_pct: number | null }): string {
+  const bits: string[] = [];
+  if (w.target_minutes !== null) bits.push(`${w.target_minutes} min`);
+  if (w.target_km !== null) bits.push(`${w.target_km}km`);
+  if (w.incline_pct !== null && w.incline_pct > 0) bits.push(`${w.incline_pct}%`);
+  return bits.join(" · ");
+}
 
 function SyncDot({ state }: { state: SyncState }) {
   return <span className={`sync-dot ${state}`} role="status" aria-label={SYNC_LABEL[state]} title={SYNC_LABEL[state]} />;

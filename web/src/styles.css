@@ -13,6 +13,10 @@
   --fail: #f87171;
   --fail-dim: #3a1a1a;
   --warn: #fbbf24;
+  /* Walks. Deliberately not the lifting green and deliberately not the fail
+     red: a walk is a different kind of thing, not a lesser session. */
+  --walk: #60a5fa;
+  --walk-dim: #16283f;
   --radius: 14px;
   --tap: 56px;
 }
@@ -473,8 +477,21 @@ label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 5px
 /* Trained. */
 .day.on { background: var(--accent); border-color: var(--accent); }
 
+/* Walked. A different hue rather than a dimmer green, because a walk isn't a
+   half-finished session — it's its own thing. */
+.day.walked { background: var(--walk); border-color: var(--walk); }
+
+/* Both lifted and walked: the lifting green, ringed in the walk blue. */
+.day.on.walked {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--walk);
+}
+
 /* Today, whether or not it's been trained — a bold ring, drawn outside the dot
-   so it reads as "you are here" rather than as another state of the dot. */
+   so it reads as "you are here" rather than as another state of the dot.
+   Declared after the walk rules on purpose: on a day that is both today and
+   walked, "you are here" is the more useful of the two rings. */
 .day.now {
   border-color: var(--text);
   border-width: 2px;
@@ -498,3 +515,105 @@ label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 5px
 }
 
 .pb-e1rm { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
+
+/* --- walks ---
+   A walk has no target to fall short of and no plate loading to read, so it
+   gets none of the set-circle machinery: it is done or it isn't. */
+
+.card.walk { border-color: var(--walk-dim); }
+.card.walk.done { border-color: var(--walk); }
+
+.walk-tick {
+  min-width: 84px;
+  min-height: var(--tap);
+  padding: 0 18px;
+  border-radius: var(--radius);
+  border: 2px solid var(--walk-dim);
+  background: transparent;
+  color: var(--walk);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.walk-tick:active { transform: scale(0.96); }
+.walk-tick.on {
+  background: var(--walk-dim);
+  border-color: var(--walk);
+  font-size: 22px;
+}
+
+/* The walk button on Today. Secondary to "Start session" — it sits below it and
+   reads as the other thing you might have come here to do. */
+.btn.walk {
+  background: transparent;
+  color: var(--walk);
+  border: 1px solid var(--walk-dim);
+}
+
+/* This week's walking, on Today. Small, factual, and there so an empty week is
+   visible before it becomes three empty weeks. */
+.walk-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.walk-stat b {
+  color: var(--walk);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Minute presets in the log sheet. Typing a number one-handed in a garage is
+   the thing to avoid, so the common durations are one tap each. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 16px;
+}
+
+.chip {
+  min-height: 46px;
+  padding: 0 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.chip:active { transform: scale(0.96); }
+.chip.on { background: var(--walk-dim); border-color: var(--walk); color: var(--walk); font-weight: 650; }
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.field input {
+  flex: 1;
+  min-height: 46px;
+  padding: 0 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+}
+
+/* A walk in a planning table. Tinted so it doesn't read as another lift, but
+   not dimmed — it's a real item on the list. */
+.walk-row td:first-child { color: var(--walk); }

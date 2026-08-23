@@ -159,6 +159,48 @@ Only `kind === "barbell"` movements get a plate breakdown. A 24kg dumbbell press
 is not "20kg bar + 2kg a side", and showing a loading for it would be actively
 misleading. Non-barbell movements get `plates: null`.
 
+## Walks
+
+Walking is tracked next to lifting, and **a walk is not a session.** It has a
+duration and a distance, no weight, no reps and no target to fall short of, so
+it gets its own `walks` table. Forcing one through `sets` would feed nonsense to
+the plate solver, to `e1rm()` and to `pbState()`, none of which mean anything
+for a walk — `tests/walks.test.ts` pins that down: a walk contributes no sets,
+no volume and can never become a personal best.
+
+One table holds two shapes, distinguished by `session_id`:
+
+- **NULL — standalone.** The daily walk, logged from Today after the fact via
+  `POST /api/walks`. `performed_at` is stamped immediately, because you only
+  ever record one that happened.
+- **Set — part of a session.** The post-lift treadmill stint, queued with the
+  session and ticked off inside it like any other item. `performed_at` is NULL
+  until it's done, which is the only way a walk is ever in a planned state.
+
+`target_minutes`/`target_km` are the plan; `minutes`/`km` are what happened. A
+standalone walk only ever fills in the second pair.
+
+A session walk **rides the same total-state sync as the sets** — it's one more
+thing you tick off in the garage, so it must not await the network either, and
+being part of the total state keeps it idempotent. `performed_at` uses the same
+`COALESCE` as `completed_at`, so the 15s heartbeat can't make a walk look like it
+happened again on every push. The `UPDATE ... WHERE id = ? AND session_id = ?`
+guard is the same defence as the set loop: a stale payload cannot reach a walk
+belonging to another session, or a standalone one.
+
+Ticking a session walk adopts its planned numbers as the actual ones. In a garage
+one tap should mean "I did the walk I was told to do", not "now type 20".
+
+Totals (7- and 28-day) are the only derived numbers, and they're a sum in the
+same spirit as session volume. **There is deliberately no goal, streak or target
+logic** — the no-programme-engine rule at the top of this file applies to
+walking too.
+
+On History's two-week strip a walk is its own colour (`--walk`, blue) rather than
+a dimmer green: a walk isn't a half-finished session, and the strip exists to
+show whether *both* habits are running. Green means lifted, blue means walked,
+green ringed in blue means both.
+
 ## Serving
 
 Production and development take different paths on purpose:
@@ -209,6 +251,13 @@ the test doesn't need `node_modules` — `tests/plates.test.ts` imports only
 The HTTP API is the real interface — the web app is one client of it, and a
 model or CLI is another. Keep it complete enough to drive the whole app.
 
+**`ATHLETE.md` is who the app is for** — age, bodyweight history, injuries,
+goals, and the training-history pattern that shaped every decision in the
+programme. None of it is recoverable from the database, and the database holds
+far less history than the man does, so an agent that plans from the log alone
+plans for the wrong person. Read it before planning sessions, and update it when
+any of it changes.
+
 **`API.md` is the agent-facing guide** to this surface. It is the document an
 agent reads before driving the API with curl, and it documents behaviour, not
 just routes (loadable-weight rules, the lifecycle, what not to write to). When
@@ -247,6 +296,10 @@ markdown needs that blank line — use the `join()` helper, which only drops
 | DELETE | `/api/sessions/:id` | |
 | PATCH | `/api/sets/:id` | single-set write (the app uses state sync instead) |
 | GET | `/api/progress/:slug` | per-movement history + Epley e1RM |
+| GET | `/api/walks?from=&to=&limit=` | walks that happened, plus 7/28-day totals |
+| POST | `/api/walks` | log a standalone walk |
+| PATCH | `/api/walks/:id` | correct a walk |
+| DELETE | `/api/walks/:id` | remove a walk |
 | GET | `/api/context` | everything a planner needs in one call |
 
 `GET /api/context` exists specifically so a model can read loadout, exercises,
@@ -292,8 +345,8 @@ read the training history, queue sessions, and delete past ones.
 
 ## Not built yet
 
-See `TODO.md` for the ordered list and the reasoning. Next up is bodyweight
-exercises: count-up sets that show the last session's count as a ghost target.
+See `TODO.md` for the ordered list and the reasoning. Bodyweight movements and
+walk tracking are both done — the sections above describe them.
 
 - The embedded chat / agent surface. `GET /api/context` and `POST /api/sessions`
   are the two endpoints it needs; the shape is deliberately ready for it.

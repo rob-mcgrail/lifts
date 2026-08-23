@@ -158,6 +158,49 @@ function parseExercises(raw: unknown): ParsedExercises {
   return { ok: true, value: out };
 }
 
+type ParsedWalks = { ok: true; value: db.PlannedWalkInput[] } | { ok: false; error: string };
+
+/**
+ * Walks queued as items inside a session. `minutes` and `km` are **targets**
+ * here, unlike `POST /api/walks`, where they are what actually happened — the
+ * same distinction as an exercise's `weight` versus a logged set's.
+ *
+ * A walk needs neither: "20 minutes", "6km" and "go for a walk" are all valid
+ * plans, so the only hard rule is that whatever is given is sane.
+ */
+function parseWalks(raw: unknown): ParsedWalks {
+  if (!Array.isArray(raw)) return { ok: false, error: "walks must be an array" };
+  const out: db.PlannedWalkInput[] = [];
+  for (const [i, item] of raw.entries()) {
+    const w = item as Record<string, unknown>;
+    const surface = typeof w.surface === "string" ? w.surface : undefined;
+    if (surface && !(db.WALK_SURFACES as readonly string[]).includes(surface)) {
+      return { ok: false, error: `walks[${i}].surface must be one of ${db.WALK_SURFACES.join(", ")}` };
+    }
+    const num = (key: string, max: number): number | undefined | null => {
+      if (w[key] === undefined || w[key] === null) return undefined;
+      const n = Number(w[key]);
+      if (!Number.isFinite(n) || n < 0 || n > max) return null;
+      return n;
+    };
+    const minutes = num("minutes", 600);
+    if (minutes === null) return { ok: false, error: `walks[${i}].minutes must be 0-600` };
+    const km = num("km", 100);
+    if (km === null) return { ok: false, error: `walks[${i}].km must be 0-100` };
+    const incline = num("incline_pct", 30);
+    if (incline === null) return { ok: false, error: `walks[${i}].incline_pct must be 0-30` };
+
+    out.push({
+      surface,
+      minutes: minutes === undefined ? undefined : Math.round(minutes),
+      km,
+      incline_pct: incline,
+      note: typeof w.note === "string" ? w.note : undefined,
+    });
+  }
+  return { ok: true, value: out };
+}
+
 // --- health & loadout ---
 
 app.get("/api/health", (c) => c.json({ ok: true, service: "lifts" }));
@@ -286,6 +329,13 @@ app.post("/api/sessions", async (c) => {
   const rest = parseRest(body, "session");
   if (!rest.ok) return c.json({ error: rest.error }, 400);
 
+  let walks: db.PlannedWalkInput[] | undefined;
+  if (body.walks !== undefined) {
+    const pw = parseWalks(body.walks);
+    if (!pw.ok) return c.json({ error: pw.error }, 400);
+    walks = pw.value;
+  }
+
   const session = db.planSession({
     name: typeof body.name === "string" ? body.name : undefined,
     plan_note: typeof body.plan_note === "string" ? body.plan_note : undefined,
@@ -293,6 +343,7 @@ app.post("/api/sessions", async (c) => {
     rest_ready: rest.ready,
     rest_end: rest.end,
     exercises: parsed.value,
+    walks,
   });
   return c.json(decorate(session), 201);
 });
@@ -307,6 +358,13 @@ app.patch("/api/sessions/:id", async (c) => {
     const parsed = parseExercises(body.exercises);
     if (!parsed.ok) return c.json({ error: parsed.error }, 400);
     exercises = parsed.value;
+  }
+
+  let walks: db.PlannedWalkInput[] | undefined;
+  if (body.walks !== undefined) {
+    const pw = parseWalks(body.walks);
+    if (!pw.ok) return c.json({ error: pw.error }, 400);
+    walks = pw.value;
   }
 
   const current = db.getSession(id);
@@ -324,6 +382,7 @@ app.patch("/api/sessions/:id", async (c) => {
     rest_ready: body.rest_ready === null ? null : rest.ready,
     rest_end: body.rest_end === null ? null : rest.end,
     exercises,
+    walks,
   });
   return c.json(decorate(updated!));
 });
@@ -417,13 +476,120 @@ app.put("/api/sessions/:id/state", async (c) => {
     }
   }
 
+  // A walk inside a session is ticked off mid-workout, so it syncs through the
+  // same total-state push as the sets rather than its own request.
+  const walks: { id: number; minutes?: number | null; km?: number | null; done?: boolean }[] = [];
+  if (body.walks !== undefined) {
+    if (!Array.isArray(body.walks)) return c.json({ error: "walks must be an array" }, 400);
+    for (const raw of body.walks) {
+      const w = raw as Record<string, unknown>;
+      if (!Number.isInteger(w.id)) return c.json({ error: "walk id must be an integer" }, 400);
+      const n = (key: string, max: number) => {
+        if (w[key] === undefined || w[key] === null) return undefined;
+        const v = Number(w[key]);
+        return Number.isFinite(v) && v >= 0 && v <= max ? v : NaN;
+      };
+      const minutes = n("minutes", 600);
+      const km = n("km", 100);
+      if (Number.isNaN(minutes)) return c.json({ error: "walk minutes must be 0-600" }, 400);
+      if (Number.isNaN(km)) return c.json({ error: "walk km must be 0-100" }, 400);
+      walks.push({
+        id: w.id as number,
+        minutes: minutes === undefined ? undefined : Math.round(minutes),
+        km,
+        done: Boolean(w.done),
+      });
+    }
+  }
+
   const updated = db.applySessionState(id, {
     notes: typeof body.notes === "string" ? body.notes : undefined,
     status: status as "active" | "done" | undefined,
     exercises,
+    walks,
   });
   if (!updated) return c.json({ error: "Not found" }, 404);
   return c.json(decorate(updated));
+});
+
+// --- walks ---
+//
+// A walk is not a session and must not become one. These endpoints cover the
+// standalone daily walk; a walk planned inside a session is created with the
+// session (`POST /api/sessions` with `walks`) and completed through the state
+// sync, like every other item in a workout.
+
+app.get("/api/walks", (c) =>
+  respond(
+    c,
+    {
+      summary: db.walkSummary(),
+      walks: db.listWalks({
+        from: c.req.query("from") ?? undefined,
+        to: c.req.query("to") ?? undefined,
+        limit: Number(c.req.query("limit")) || undefined,
+      }),
+    },
+    md.walks,
+  ),
+);
+
+// `minutes` and `km` here are what you did, not a target — this logs a walk
+// that already happened, which is why it lands complete. Pass `performed_at` to
+// backfill one you forgot on the day.
+app.post("/api/walks", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const parsed = parseWalks([body]);
+  if (!parsed.ok) return c.json({ error: parsed.error.replace("walks[0].", "") }, 400);
+  const w = parsed.value[0]!;
+
+  if (w.minutes === undefined && w.km === undefined) {
+    return c.json({ error: "a walk needs minutes or km" }, 400);
+  }
+  const at = body.performed_at;
+  if (at !== undefined && typeof at !== "string") return c.json({ error: "performed_at must be a string" }, 400);
+
+  return c.json(
+    db.logWalk({
+      minutes: w.minutes,
+      km: w.km ?? undefined,
+      surface: w.surface ?? "outdoor",
+      incline_pct: w.incline_pct ?? undefined,
+      note: w.note,
+      performed_at: at,
+    }),
+    201,
+  );
+});
+
+app.patch("/api/walks/:id", async (c) => {
+  const id = intParam(c, "id");
+  if (id === null) return c.json({ error: "Bad id" }, 400);
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+
+  // Validate through the same parser, then only forward the keys actually sent
+  // so a PATCH never blanks a field it didn't mention.
+  const parsed = parseWalks([body]);
+  if (!parsed.ok) return c.json({ error: parsed.error.replace("walks[0].", "") }, 400);
+  const w = parsed.value[0]!;
+
+  const updated = db.updateWalk(id, {
+    minutes: body.minutes === undefined ? undefined : (w.minutes ?? null),
+    km: body.km === undefined ? undefined : (w.km ?? null),
+    surface: w.surface,
+    incline_pct: body.incline_pct === undefined ? undefined : (w.incline_pct ?? null),
+    note: body.note === undefined ? undefined : (w.note ?? null),
+    done: body.done === undefined ? undefined : Boolean(body.done),
+  });
+  if (!updated) return c.json({ error: "Not found" }, 404);
+  return c.json(updated);
+});
+
+app.delete("/api/walks/:id", (c) => {
+  const id = intParam(c, "id");
+  if (id === null) return c.json({ error: "Bad id" }, 400);
+  if (!db.deleteWalk(id)) return c.json({ error: "Not found" }, 404);
+  return c.json({ ok: true });
 });
 
 // --- sets ---
@@ -497,6 +663,7 @@ app.get("/api/context", (c) =>
       queue: db.listQueue().map(decorate),
       recent: db.recentPerExercise(5),
       history: db.listHistory(10).map((s) => ({ ...decorate(s), volume: s.volume })),
+      walks: db.walkSummary(),
     },
     md.context,
   ),

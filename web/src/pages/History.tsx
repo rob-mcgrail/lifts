@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
-import { api, fmtWeight, relDate, sessionLabel, type Session } from "../api";
+import { api, fmtWeight, relDate, sessionLabel, type Session, type Walk } from "../api";
 import { Screen } from "./Screen";
 
 /**
- * Fourteen days at a glance — last week on top, this week below, a dot per day
- * and green where something was logged.
+ * Fourteen days at a glance — last week on top, this week below, a dot per day.
+ * Green where you lifted, blue where you walked, green ringed in blue where you
+ * did both. A walk gets its own colour rather than a dimmer green: it isn't a
+ * half-finished session, it's a different thing, and the strip is there to show
+ * whether *both* habits are running.
  *
  * Weeks start Monday, and everything here is computed in **local** time. The
  * server stores UTC, so a Sunday-evening session in NZ is stored as Monday and
@@ -26,14 +29,20 @@ function mondayOf(d: Date): Date {
   return m;
 }
 
-function TwoWeeks({ sessions }: { sessions: Session[] }) {
+/** SQLite hands back "YYYY-MM-DD HH:MM:SS" in UTC; make that explicit before
+ *  converting, or the browser parses it as local and shifts every date. */
+const dayOf = (iso: string): string => localDayKey(new Date(iso.replace(" ", "T") + "Z"));
+
+function TwoWeeks({ sessions, walks }: { sessions: Session[]; walks: Walk[] }) {
   const trained = new Set(
     sessions
       .map((s) => s.finished_at ?? s.started_at)
       .filter((iso): iso is string => Boolean(iso))
-      // SQLite hands back "YYYY-MM-DD HH:MM:SS" in UTC; make it explicit before
-      // converting, or the browser parses it as local and shifts every date.
-      .map((iso) => localDayKey(new Date(iso.replace(" ", "T") + "Z"))),
+      .map(dayOf),
+  );
+
+  const walked = new Set(
+    walks.map((w) => w.performed_at).filter((iso): iso is string => Boolean(iso)).map(dayOf),
   );
 
   const today = new Date();
@@ -45,7 +54,13 @@ function TwoWeeks({ sessions }: { sessions: Session[] }) {
     Array.from({ length: 7 }, (_, i) => {
       const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
       const key = localDayKey(d);
-      return { key, trained: trained.has(key), today: key === todayKey, ahead: d.getTime() > today.getTime() };
+      return {
+        key,
+        trained: trained.has(key),
+        walked: walked.has(key),
+        today: key === todayKey,
+        ahead: d.getTime() > today.getTime(),
+      };
     });
 
   return (
@@ -60,8 +75,8 @@ function TwoWeeks({ sessions }: { sessions: Session[] }) {
           {week(start).map((d) => (
             <i
               key={d.key}
-              className={`day${d.trained ? " on" : ""}${d.today ? " now" : ""}${d.ahead ? " ahead" : ""}`}
-              title={d.key + (d.trained ? " — trained" : "")}
+              className={`day${d.trained ? " on" : ""}${d.walked ? " walked" : ""}${d.today ? " now" : ""}${d.ahead ? " ahead" : ""}`}
+              title={`${d.key}${d.trained ? " — lifted" : ""}${d.walked ? " — walked" : ""}`}
             />
           ))}
         </div>
@@ -72,10 +87,14 @@ function TwoWeeks({ sessions }: { sessions: Session[] }) {
 
 export default function History() {
   const [sessions, setSessions] = useState<(Session & { volume: number })[] | null>(null);
+  const [walks, setWalks] = useState<Walk[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     api.history().then(setSessions).catch((e: Error) => setErr(e.message));
+    // The strip is the only thing that wants these, so a failure dims one row
+    // of dots rather than taking the page down with it.
+    api.walks(100).then((r) => setWalks(r.walks)).catch(() => {});
   }, []);
 
   if (err) return <Screen title="History"><p className="err">{err}</p></Screen>;
@@ -84,7 +103,7 @@ export default function History() {
   if (!sessions.length) {
     return (
       <Screen title="History">
-        <TwoWeeks sessions={[]} />
+        <TwoWeeks sessions={[]} walks={walks} />
         <p className="empty">No completed sessions yet.</p>
       </Screen>
     );
@@ -92,7 +111,7 @@ export default function History() {
 
   return (
     <Screen title="History" sub={`${sessions.length} sessions`}>
-      <TwoWeeks sessions={sessions} />
+      <TwoWeeks sessions={sessions} walks={walks} />
       {sessions.map((s) => (
         <div key={s.id} className="card">
           <div className="row" style={{ marginBottom: 8 }}>

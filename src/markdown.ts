@@ -7,7 +7,7 @@
 //
 // Every renderer here is presentation only — no reads, no business logic.
 
-import type { Best, LoggedSet, Session, SessionExerciseDetail } from "./db";
+import type { Best, LoggedSet, Session, SessionExerciseDetail, Walk, WalkSummary } from "./db";
 import type { PlateSolution } from "./plates";
 
 type Cell = string | number | null | undefined;
@@ -80,6 +80,7 @@ export function plannedSession(s: DecoratedSession): string {
     s.plan_note ? `\n> ${s.plan_note}` : null,
     "",
     table(["#", "Exercise", "Slug", "Target", "Weight", "Per side", "Note"], rows),
+    sessionWalksTable(s.walks ?? []),
   ]);
 }
 
@@ -101,6 +102,7 @@ export function loggedSession(s: DecoratedSession): string {
     s.plan_note ? `\n> ${s.plan_note}` : null,
     "",
     table(["#", "Exercise", "Weight", "Target", "Reps", "Result"], rows),
+    sessionWalksTable(s.walks ?? []),
     s.notes ? `\nNotes: ${s.notes}` : null,
   ]);
 }
@@ -263,6 +265,57 @@ export function loadout(l: {
   ].join("\n");
 }
 
+// --- walks ---
+
+/** "20 min · 2.1km · 8%" — whichever parts of a walk were actually recorded. */
+const walkCell = (minutes: number | null, km: number | null, incline: number | null): string => {
+  const bits: string[] = [];
+  if (minutes !== null) bits.push(`${minutes} min`);
+  if (km !== null) bits.push(`${km}km`);
+  if (incline !== null && incline > 0) bits.push(`${incline}%`);
+  return bits.length ? bits.join(" · ") : "—";
+};
+
+/** A walk planned inside a session, for the plan and result tables. */
+const plannedWalkRow = (w: Walk, i: number): Cell[] => [
+  i + 1,
+  w.surface === "treadmill" ? "Walk (treadmill)" : "Walk",
+  walkCell(w.target_minutes, w.target_km, w.incline_pct),
+  w.performed_at ? walkCell(w.minutes, w.km, w.incline_pct) : "—",
+  w.performed_at ? "done" : "to do",
+  w.note ?? "",
+];
+
+/** The walks section of a session, or null when it has none. */
+function sessionWalksTable(walks: Walk[]): string | null {
+  if (!walks.length) return null;
+  return join([
+    "",
+    "Walks:",
+    "",
+    table(["#", "What", "Target", "Actual", "Status", "Note"], walks.map(plannedWalkRow)),
+  ]);
+}
+
+export function walks(data: { summary: WalkSummary; walks: Walk[] }): string {
+  const rows = data.walks.map((w) => [
+    day(w.performed_at),
+    w.surface,
+    walkCell(w.minutes, w.km, w.incline_pct),
+    w.session_id === null ? "standalone" : `session ${w.session_id}`,
+    w.note ?? "",
+  ]);
+  const t = data.summary;
+  return [
+    "# Walks",
+    "",
+    `Last 7 days: **${t.last_7_days.walks} walks, ${t.last_7_days.minutes} min, ${t.last_7_days.km}km**.`,
+    `Last 28 days: ${t.last_28_days.walks} walks, ${t.last_28_days.minutes} min, ${t.last_28_days.km}km.`,
+    "",
+    table(["Date", "Surface", "What", "Where from", "Note"], rows),
+  ].join("\n");
+}
+
 /** Everything a planner needs, in one document. */
 export function context(data: {
   loadout: Parameters<typeof loadout>[0];
@@ -270,6 +323,7 @@ export function context(data: {
   queue: DecoratedSession[];
   recent: Record<string, { date: string; weight: number; reps: (number | null)[] }[]>;
   history: (DecoratedSession & { volume: number })[];
+  walks: WalkSummary;
 }): string {
   const recentRows: Cell[][] = [];
   for (const [slug, entries] of Object.entries(data.recent)) {
@@ -293,5 +347,7 @@ export function context(data: {
     table(["Date", "Exercise", "Weight", "Reps"], recentRows),
     "",
     history(data.history),
+    "",
+    walks({ summary: data.walks, walks: data.walks.recent }),
   ].join("\n");
 }

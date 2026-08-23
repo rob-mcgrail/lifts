@@ -32,6 +32,34 @@ export type SessionExercise = {
   plates: Plates | null;
 };
 
+/**
+ * A walk. Either standalone — the daily walk, logged from Today — or an item
+ * planned inside a session and ticked off during it.
+ *
+ * `target_*` is the plan, the bare fields are what happened, and
+ * `performed_at === null` means it hasn't been done yet.
+ */
+export type Walk = {
+  id: number;
+  session_id: number | null;
+  position: number;
+  surface: string;
+  target_minutes: number | null;
+  target_km: number | null;
+  incline_pct: number | null;
+  minutes: number | null;
+  km: number | null;
+  note: string | null;
+  performed_at: string | null;
+  created_at: string;
+};
+
+export type WalkSummary = {
+  last_7_days: { walks: number; minutes: number; km: number };
+  last_28_days: { walks: number; minutes: number; km: number };
+  recent: Walk[];
+};
+
 export type SessionStatus = "planned" | "active" | "done";
 
 export type Session = {
@@ -47,6 +75,7 @@ export type Session = {
   rest_ready: number | null;
   rest_end: number | null;
   exercises: SessionExercise[];
+  walks: Walk[];
 };
 
 export type Today =
@@ -59,6 +88,8 @@ export type SessionState = {
   status: SessionStatus;
   notes?: string;
   exercises: { id: number; target_weight: number; sets: { id: number; reps: number | null }[] }[];
+  /** A walk in a session is ticked off mid-workout, so it rides the same push. */
+  walks: { id: number; minutes: number | null; km: number | null; done: boolean }[];
 };
 
 export type Loadout = {
@@ -105,6 +136,14 @@ export const api = {
    */
   syncState: (id: number, state: SessionState) =>
     req<Session>(`/sessions/${id}/state`, { method: "PUT", body: JSON.stringify(state) }),
+
+  walks: (limit = 60) => req<{ summary: WalkSummary; walks: Walk[] }>(`/walks?limit=${limit}`),
+
+  /** Log a walk that already happened. Not a session, and never becomes one. */
+  logWalk: (w: { minutes?: number; km?: number; surface?: string; incline_pct?: number; note?: string }) =>
+    req<Walk>("/walks", { method: "POST", body: JSON.stringify(w) }),
+
+  deleteWalk: (id: number) => req<{ ok: true }>(`/walks/${id}`, { method: "DELETE" }),
 
   settings: () => req<Record<string, string>>("/settings"),
   bests: () =>

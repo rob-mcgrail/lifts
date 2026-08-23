@@ -66,6 +66,39 @@ db.run(`CREATE TABLE IF NOT EXISTS sets (
   UNIQUE(session_exercise_id, idx)
 )`);
 
+// Walks. Deliberately NOT sets of an exercise.
+//
+// A walk has a duration and a distance; it has no weight, no reps and no
+// target to fall short of. Putting one through `sets` would feed nonsense to
+// the plate solver, to `e1rm()` and to personal bests, all of which are
+// meaningless for a walk. So it gets its own table and stays out of them.
+//
+// Two shapes share it on purpose:
+//
+//   - `session_id` NULL — a standalone walk. The daily walk, logged from the
+//     Today screen after the fact. It is not a lifting session and must never
+//     be made into one.
+//   - `session_id` set — a walk planned as an item *inside* a session, the
+//     post-lift treadmill stint, ticked off like any other item in the list.
+//
+// `performed_at` NULL means planned but not yet done, which is only reachable
+// for a session walk — a standalone walk is only ever recorded because it
+// happened.
+db.run(`CREATE TABLE IF NOT EXISTS walks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER REFERENCES sessions(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL DEFAULT 0,
+  surface TEXT NOT NULL DEFAULT 'outdoor',
+  target_minutes INTEGER,
+  target_km REAL,
+  incline_pct REAL,
+  minutes INTEGER,
+  km REAL,
+  note TEXT,
+  performed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)`);
+
 db.run(`CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -84,6 +117,8 @@ db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status, posit
 db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_finished ON sessions(finished_at DESC)`);
 db.run(`CREATE INDEX IF NOT EXISTS idx_session_exercises_session ON session_exercises(session_id)`);
 db.run(`CREATE INDEX IF NOT EXISTS idx_sets_session_exercise ON sets(session_exercise_id)`);
+db.run(`CREATE INDEX IF NOT EXISTS idx_walks_session ON walks(session_id, position)`);
+db.run(`CREATE INDEX IF NOT EXISTS idx_walks_performed ON walks(performed_at DESC)`);
 
 // --- Types ---
 
@@ -114,6 +149,37 @@ export type SessionExerciseDetail = {
   sets: SessionSetRow[];
 };
 
+/**
+ * A walk, either standalone or an item within a session. See the `walks` table
+ * comment for why this is not a set.
+ *
+ * Note the two pairs: `target_minutes`/`target_km` are the plan, `minutes`/`km`
+ * are what actually happened. A standalone walk fills in only the second pair.
+ */
+export type Walk = {
+  id: number;
+  session_id: number | null;
+  position: number;
+  surface: string; // treadmill | outdoor
+  target_minutes: number | null;
+  target_km: number | null;
+  incline_pct: number | null;
+  minutes: number | null;
+  km: number | null;
+  note: string | null;
+  performed_at: string | null;
+  created_at: string;
+};
+
+/** A walk queued as part of a session. `minutes`/`km` here are *targets*. */
+export type PlannedWalkInput = {
+  surface?: string;
+  minutes?: number;
+  km?: number;
+  incline_pct?: number;
+  note?: string;
+};
+
 export type SessionStatus = "planned" | "active" | "done";
 
 export type Session = {
@@ -129,6 +195,7 @@ export type Session = {
   rest_ready: number | null;
   rest_end: number | null;
   exercises: SessionExerciseDetail[];
+  walks: Walk[];
 };
 
 export type PlannedExerciseInput = {
@@ -357,6 +424,9 @@ export function listExercises(): Exercise[] {
 
 export const EXERCISE_KINDS = ["barbell", "dumbbell", "machine", "bodyweight", "other"] as const;
 
+/** Where a walk happened. Treadmill walks carry an incline; outdoor ones don't. */
+export const WALK_SURFACES = ["treadmill", "outdoor"] as const;
+
 /** Look up by slug, creating the movement if it's new — planning shouldn't be
  *  blocked on registering an exercise first. `kind` only ever upgrades an
  *  existing row from the default, so a later plan can correct a guess. */
@@ -382,7 +452,7 @@ export function ensureExercise(slug: string, name?: string, kind?: string): Exer
 
 export function getSession(id: number): Session | null {
   const s = db
-    .query<Omit<Session, "exercises">, [number]>(
+    .query<Omit<Session, "exercises" | "walks">, [number]>(
       `SELECT id, name, status, position, plan_note, notes, created_at, started_at, finished_at,
               rest_ready, rest_end
          FROM sessions WHERE id = ?`,
@@ -403,7 +473,37 @@ export function getSession(id: number): Session | null {
   const setQ = db.query<SessionSetRow, [number]>(
     `SELECT id, idx, reps, weight, completed_at FROM sets WHERE session_exercise_id = ? ORDER BY idx`,
   );
-  return { ...s, exercises: exercises.map((e) => ({ ...e, sets: setQ.all(e.id) })) };
+  return {
+    ...s,
+    exercises: exercises.map((e) => ({ ...e, sets: setQ.all(e.id) })),
+    walks: sessionWalks(id),
+  };
+}
+
+/** The walks planned as items inside one session, in the order they're listed. */
+export function sessionWalks(sessionId: number): Walk[] {
+  return db
+    .query<Walk, [number]>(`SELECT * FROM walks WHERE session_id = ? ORDER BY position, id`)
+    .all(sessionId);
+}
+
+/** Insert a session's planned walks. Shared by planning and re-planning. */
+function insertSessionWalks(sessionId: number, walks: PlannedWalkInput[]): void {
+  walks.forEach((w, i) => {
+    db.run(
+      `INSERT INTO walks (session_id, position, surface, target_minutes, target_km, incline_pct, note)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        sessionId,
+        i + 1,
+        w.surface ?? "treadmill",
+        w.minutes ?? null,
+        w.km ?? null,
+        w.incline_pct ?? null,
+        w.note ?? null,
+      ],
+    );
+  });
 }
 
 /** Queue a session. Appended to the end of the planned queue unless positioned. */
@@ -414,6 +514,7 @@ export function planSession(input: {
   rest_ready?: number;
   rest_end?: number;
   exercises: PlannedExerciseInput[];
+  walks?: PlannedWalkInput[];
 }): Session {
   const id = db.transaction(() => {
     const tail =
@@ -440,6 +541,8 @@ export function planSession(input: {
         db.run(`INSERT INTO sets (session_exercise_id, idx) VALUES (?, ?)`, [seId, k]);
       }
     });
+
+    insertSessionWalks(sid, input.walks ?? []);
     return sid;
   })();
   return getSession(id)!;
@@ -456,6 +559,7 @@ export function updatePlannedSession(
     rest_ready?: number | null;
     rest_end?: number | null;
     exercises?: PlannedExerciseInput[];
+    walks?: PlannedWalkInput[];
   },
 ): Session | null {
   const current = getSession(id);
@@ -484,6 +588,13 @@ export function updatePlannedSession(
           db.run(`INSERT INTO sets (session_exercise_id, idx) VALUES (?, ?)`, [seId, k]);
         }
       });
+    }
+
+    // Only the session's own walks are replaced. A standalone walk has a NULL
+    // session_id and can never be caught by this.
+    if (patch.walks) {
+      db.run(`DELETE FROM walks WHERE session_id = ?`, [id]);
+      insertSessionWalks(id, patch.walks);
     }
   })();
   return getSession(id);
@@ -534,6 +645,9 @@ export function resetSession(id: number): Session | null {
         WHERE session_exercise_id IN (SELECT id FROM session_exercises WHERE session_id = ?)`,
       [id],
     );
+    // The session's walks go back to un-done as well — the whole point of a
+    // reset is that the session reads as never opened.
+    db.run(`UPDATE walks SET minutes = NULL, km = NULL, performed_at = NULL WHERE session_id = ?`, [id]);
     db.run(`UPDATE sessions SET status = 'planned', started_at = NULL, notes = NULL WHERE id = ?`, [id]);
   })();
 
@@ -704,6 +818,7 @@ export function applySessionState(
     notes?: string;
     status?: "active" | "done";
     exercises?: { id: number; target_weight?: number; sets?: { id: number; reps: number | null }[] }[];
+    walks?: { id: number; minutes?: number | null; km?: number | null; done?: boolean }[];
   },
 ): Session | null {
   const session = getSession(id);
@@ -740,6 +855,22 @@ export function applySessionState(
           [st.reps, st.reps, st.id],
         );
       }
+    }
+
+    // A walk inside a session is ticked off mid-workout like anything else, so
+    // it rides the same total-state push rather than its own request — that's
+    // what keeps it working on garage wifi. `AND session_id = ?` is the same
+    // defence as the set loop above: a stale payload cannot reach a walk that
+    // belongs to another session, or a standalone one.
+    for (const w of state.walks ?? []) {
+      db.run(
+        `UPDATE walks
+            SET minutes = COALESCE(?, minutes),
+                km = COALESCE(?, km),
+                performed_at = CASE WHEN ? = 1 THEN COALESCE(performed_at, datetime('now')) ELSE NULL END
+          WHERE id = ? AND session_id = ?`,
+        [w.minutes ?? null, w.km ?? null, w.done ? 1 : 0, w.id, id],
+      );
     }
 
     if (state.status === "done" && session.status !== "done") {
@@ -850,4 +981,140 @@ export function recentPerExercise(limit = 5): Record<string, { date: string; wei
     if (h.length) out[ex.slug] = h.slice(-limit).map((r) => ({ date: r.date, weight: r.weight, reps: r.reps }));
   }
   return out;
+}
+
+// --- Walks ---
+//
+// Everything below deals with walks as their own thing. Walks planned inside a
+// session are handled by `sessionWalks` / `insertSessionWalks` above and by the
+// state sync; these functions are for the standalone daily walk and for reading
+// walks back across a date range.
+
+/**
+ * Log a walk that isn't part of a session — the daily walk, recorded from the
+ * Today screen after it happened.
+ *
+ * `minutes` and `km` here are what you actually did, not a target, which is why
+ * `performed_at` is stamped immediately. Pass `performed_at` to backfill a walk
+ * you forgot to log on the day.
+ */
+export function logWalk(input: {
+  minutes?: number;
+  km?: number;
+  surface?: string;
+  incline_pct?: number;
+  note?: string;
+  performed_at?: string;
+}): Walk {
+  db.run(
+    `INSERT INTO walks (session_id, position, surface, incline_pct, minutes, km, note, performed_at)
+     VALUES (NULL, 0, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`,
+    [
+      input.surface ?? "outdoor",
+      input.incline_pct ?? null,
+      input.minutes ?? null,
+      input.km ?? null,
+      input.note ?? null,
+      input.performed_at ?? null,
+    ],
+  );
+  const id = db.query<{ id: number }, []>(`SELECT last_insert_rowid() AS id`).get()!.id;
+  return getWalk(id)!;
+}
+
+export function getWalk(id: number): Walk | null {
+  return db.query<Walk, [number]>(`SELECT * FROM walks WHERE id = ?`).get(id) ?? null;
+}
+
+/**
+ * Walks that actually happened, newest first, whether standalone or part of a
+ * session. Planned-but-not-done walks are excluded deliberately: an unfinished
+ * walk is part of its session's to-do list, not part of the walking record.
+ */
+export function listWalks(opts: { from?: string; to?: string; limit?: number } = {}): Walk[] {
+  const where = ["performed_at IS NOT NULL"];
+  const params: (string | number)[] = [];
+  if (opts.from) {
+    where.push("performed_at >= ?");
+    params.push(opts.from);
+  }
+  if (opts.to) {
+    where.push("performed_at <= ?");
+    params.push(opts.to);
+  }
+  params.push(Math.min(opts.limit ?? 100, 1000));
+  return db
+    .query<Walk, (string | number)[]>(
+      `SELECT * FROM walks WHERE ${where.join(" AND ")} ORDER BY performed_at DESC LIMIT ?`,
+    )
+    .all(...params);
+}
+
+export function updateWalk(
+  id: number,
+  patch: {
+    minutes?: number | null;
+    km?: number | null;
+    surface?: string;
+    incline_pct?: number | null;
+    note?: string | null;
+    done?: boolean;
+  },
+): Walk | null {
+  if (!getWalk(id)) return null;
+  db.transaction(() => {
+    if (patch.minutes !== undefined) db.run(`UPDATE walks SET minutes = ? WHERE id = ?`, [patch.minutes, id]);
+    if (patch.km !== undefined) db.run(`UPDATE walks SET km = ? WHERE id = ?`, [patch.km, id]);
+    if (patch.surface !== undefined) db.run(`UPDATE walks SET surface = ? WHERE id = ?`, [patch.surface, id]);
+    if (patch.incline_pct !== undefined) db.run(`UPDATE walks SET incline_pct = ? WHERE id = ?`, [patch.incline_pct, id]);
+    if (patch.note !== undefined) db.run(`UPDATE walks SET note = ? WHERE id = ?`, [patch.note, id]);
+    // COALESCE so marking a walk done twice doesn't move the time it happened.
+    if (patch.done !== undefined) {
+      db.run(
+        `UPDATE walks SET performed_at = CASE WHEN ? = 1 THEN COALESCE(performed_at, datetime('now')) ELSE NULL END
+          WHERE id = ?`,
+        [patch.done ? 1 : 0, id],
+      );
+    }
+  })();
+  return getWalk(id);
+}
+
+export function deleteWalk(id: number): boolean {
+  const existed = Boolean(getWalk(id));
+  if (existed) db.run(`DELETE FROM walks WHERE id = ?`, [id]);
+  return existed;
+}
+
+export type WalkSummary = {
+  last_7_days: { walks: number; minutes: number; km: number };
+  last_28_days: { walks: number; minutes: number; km: number };
+  recent: Walk[];
+};
+
+/**
+ * What a planner needs to know about walking: is it happening, and how much.
+ *
+ * Totals are the only derived numbers here — a sum, in the same spirit as
+ * session volume. There is deliberately no goal, streak or target logic: the
+ * app has no programme engine for lifting and it isn't getting one for walking.
+ *
+ * Windows are counted in UTC, which can put a late-evening NZ walk in the
+ * neighbouring day. That's fine for "roughly how much walking happened"; the
+ * History strip does the proper local-time conversion because it draws a
+ * specific day.
+ */
+export function walkSummary(): WalkSummary {
+  // The offset goes into the SQL because datetime() has to evaluate it; `days`
+  // is a number from this module's own callers, never from a request.
+  const bounded = (days: number) =>
+    db
+      .query<{ walks: number; minutes: number; km: number }, []>(
+        `SELECT COUNT(*) AS walks, COALESCE(SUM(minutes), 0) AS minutes, COALESCE(ROUND(SUM(km), 2), 0) AS km
+           FROM walks
+          WHERE performed_at IS NOT NULL AND performed_at >= datetime('now', '-${days} days')`,
+      )
+      .get()!;
+
+  return { last_7_days: bounded(7), last_28_days: bounded(28), recent: listWalks({ limit: 10 }) };
 }

@@ -73,6 +73,24 @@ export default function Queue() {
                   </td>
                 </tr>
               ))}
+              {/* A planned walk is an item in the session, so it belongs in the
+                  session's list here — same table, no weight to show. */}
+              {s.walks.map((w) => (
+                <tr key={`walk-${w.id}`} className="walk-row">
+                  <td>{w.surface === "treadmill" ? "Treadmill walk" : "Walk"}</td>
+                  <td className="muted small">
+                    {[
+                      w.target_minutes !== null ? `${w.target_minutes} min` : null,
+                      w.target_km !== null ? `${w.target_km}km` : null,
+                      w.incline_pct ? `${w.incline_pct}%` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </td>
+                  <td className="num muted">—</td>
+                  <td />
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

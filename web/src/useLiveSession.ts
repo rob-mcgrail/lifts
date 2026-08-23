@@ -60,6 +60,15 @@ function payload(s: Session): SessionState {
       target_weight: e.target_weight,
       sets: e.sets.map((x) => ({ id: x.id, reps: x.reps })),
     })),
+    // Walks go in the same payload as the sets. A walk is one more item you
+    // tick off in the garage, so it needs the same don't-wait-for-the-network
+    // treatment — and being part of the total state keeps it idempotent.
+    walks: (s.walks ?? []).map((w) => ({
+      id: w.id,
+      minutes: w.minutes,
+      km: w.km,
+      done: w.performed_at !== null,
+    })),
   };
 }
 

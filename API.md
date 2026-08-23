@@ -351,6 +351,68 @@ not by the sync endpoint. History is a record of what happened, not a draft.
 
 ---
 
+## Walks
+
+Walking is tracked alongside lifting, and a walk is **not** a session. It has a
+duration and a distance; it has no weight, no reps and no target to fall short
+of, so it lives in its own table and never reaches the plate solver, `e1rm()`,
+personal bests or session volume.
+
+There are two kinds, and the difference matters when you plan.
+
+### A walk inside a session
+
+The post-lift treadmill stint. Queue it with the session, as `walks` alongside
+`exercises`, and it becomes an item in that session's list of things to do —
+ticked off in the workout screen like any other item.
+
+```bash
+curl -s -X POST "$LIFTS/api/sessions" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "Lower A",
+    "exercises": [ { "exercise": "squat", "weight": 105, "sets": 4, "reps": 8 } ],
+    "walks": [ { "surface": "treadmill", "minutes": 20, "incline_pct": 8 } ]
+  }'
+```
+
+Here `minutes` and `km` are **targets**, the same way an exercise's `weight` is.
+Both are optional — "20 minutes", "6km" and a bare `{}` are all valid plans.
+`surface` is `treadmill` (the default for a session walk) or `outdoor`.
+
+To change them, pass `walks` to `PATCH /api/sessions/:id`, the same way you pass
+`exercises`: omitting the key leaves them alone, passing it replaces the lot.
+A standalone walk has a null `session_id` and can never be caught by that.
+
+### A standalone walk
+
+The daily walk, logged from the Today screen after the fact. `POST /api/walks`
+records something that already happened, so here `minutes` and `km` are **what
+you did**, not targets, and the walk lands complete.
+
+```bash
+curl -s -X POST "$LIFTS/api/walks" \
+  -H 'Content-Type: application/json' \
+  -d '{ "minutes": 45, "km": 6, "surface": "outdoor" }'
+```
+
+A walk needs `minutes` or `km` — one or the other, or it's rejected. Pass
+`performed_at` to backfill one you forgot on the day.
+
+### Reading them back
+
+`GET /api/walks` returns walks that actually happened, newest first, with 7- and
+28-day totals. A planned session walk that hasn't been done is **excluded** — it
+is part of its session's to-do list, not part of the walking record. The same
+summary rides along on `GET /api/context`, so you can see whether walking is
+happening before you plan.
+
+Totals are the only derived numbers: a sum, in the same spirit as session
+volume. There is deliberately no goal, streak or target logic. The app has no
+programme engine for lifting and it is not getting one for walking.
+
+---
+
 ## Reading what happened
 
 ### Recent sessions
@@ -438,6 +500,10 @@ Reads accept `?format=md`.
 | PUT | `/api/sessions/:id/state` | Idempotent total-state sync. The app's only session write. |
 | PATCH | `/api/sets/:id` | Correct one mis-logged set. |
 | PATCH | `/api/session-exercises/:id/weight` | Correct one movement's weight. |
+| GET | `/api/walks?from=&to=&limit=` | Walks that happened, plus 7/28-day totals. |
+| POST | `/api/walks` | Log a standalone walk. |
+| PATCH | `/api/walks/:id` | Correct or re-time a walk. |
+| DELETE | `/api/walks/:id` | Remove a walk. |
 
 ### Session lifecycle
 
