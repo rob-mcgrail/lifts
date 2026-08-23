@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, type Walk } from "./api";
+import { api } from "./api";
 
 /**
  * Log a walk that already happened.
@@ -16,7 +16,7 @@ import { api, type Walk } from "./api";
  */
 const MINUTES = [15, 20, 30, 45, 60];
 
-export function WalkSheet({ onClose, onLogged }: { onClose: () => void; onLogged: (w: Walk) => void }) {
+export function WalkSheet({ onClose }: { onClose: () => void }) {
   const [surface, setSurface] = useState<"outdoor" | "treadmill">("outdoor");
   const [minutes, setMinutes] = useState<number | null>(30);
   const [km, setKm] = useState("");
@@ -34,12 +34,7 @@ export function WalkSheet({ onClose, onLogged }: { onClose: () => void; onLogged
     setSaving(true);
     setErr(null);
     try {
-      const walk = await api.logWalk({
-        surface,
-        minutes: minutes ?? undefined,
-        km: distance,
-      });
-      onLogged(walk);
+      await api.logWalk({ surface, minutes: minutes ?? undefined, km: distance });
       onClose();
     } catch (e) {
       setErr((e as Error).message);

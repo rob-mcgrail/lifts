@@ -17,6 +17,11 @@
      red: a walk is a different kind of thing, not a lesser session. */
   --walk: #60a5fa;
   --walk-dim: #16283f;
+  /* Mustard, for the walk button. Its own token rather than reusing --warn:
+     that one means "this weight can't be loaded", and a button borrowing it
+     would quietly tie the two meanings together. */
+  --mustard: #e3a92c;
+  --mustard-ink: #2a1e02;
   --radius: 14px;
   --tap: 56px;
 }
@@ -544,28 +549,12 @@ label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 5px
   font-size: 22px;
 }
 
-/* The walk button on Today. Secondary to "Start session" — it sits below it and
-   reads as the other thing you might have come here to do. */
+/* The walk button on Today. A filled button like "Start session", because it is
+   a real action and the outlined version read as disabled — but mustard, so it
+   never competes with the green primary for the same tap. */
 .btn.walk {
-  background: transparent;
-  color: var(--walk);
-  border: 1px solid var(--walk-dim);
-}
-
-/* This week's walking, on Today. Small, factual, and there so an empty week is
-   visible before it becomes three empty weeks. */
-.walk-stat {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.walk-stat b {
-  color: var(--walk);
-  font-size: 15px;
-  font-variant-numeric: tabular-nums;
+  background: var(--mustard);
+  color: var(--mustard-ink);
 }
 
 /* Minute presets in the log sheet. Typing a number one-handed in a garage is

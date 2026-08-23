@@ -1,31 +1,19 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, fmtWeight, relDate, sessionLabel, type Today as TodayData, type WalkSummary } from "../api";
+import { api, fmtWeight, relDate, sessionLabel, type Today as TodayData } from "../api";
 import { WalkSheet } from "../WalkSheet";
 import { Screen } from "./Screen";
 
 export default function Today() {
   const [data, setData] = useState<TodayData | null>(null);
-  const [walks, setWalks] = useState<WalkSummary | null>(null);
   const [sheet, setSheet] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const nav = useNavigate();
 
-  const loadWalks = useCallback(() => {
-    // Walking is a side panel on this screen, not the point of it. If the
-    // request fails the session still has to be startable, so this never
-    // becomes a page error.
-    api
-      .walks(1)
-      .then((r) => setWalks(r.summary))
-      .catch(() => {});
-  }, []);
-
   useEffect(() => {
     api.today().then(setData).catch((e: Error) => setErr(e.message));
-    loadWalks();
-  }, [loadWalks]);
+  }, []);
 
   // An in-progress session always wins — you walked away mid-workout, go back.
   useEffect(() => {
@@ -51,30 +39,12 @@ export default function Today() {
    * most walks happen on days you aren't lifting.
    */
   const walkControls = (
-    <>
-      {walks && (
-        <div className="card walk-stat">
-          <b>
-            {walks.last_7_days.walks} {walks.last_7_days.walks === 1 ? "walk" : "walks"}
-          </b>
-          <span>
-            {walks.last_7_days.minutes > 0 && <>{walks.last_7_days.minutes} min · </>}
-            last 7 days
-          </span>
-        </div>
-      )}
-      <button className="btn walk" onClick={() => setSheet(true)}>
-        Log a walk
-      </button>
-    </>
+    <button className="btn walk" onClick={() => setSheet(true)}>
+      Log a walk
+    </button>
   );
 
-  const sheetEl = sheet && (
-    <WalkSheet
-      onClose={() => setSheet(false)}
-      onLogged={loadWalks}
-    />
-  );
+  const sheetEl = sheet && <WalkSheet onClose={() => setSheet(false)} />;
 
   if (err) return <Screen title="Today"><p className="err">{err}</p></Screen>;
   if (!data) return <Screen title="Today"><p className="empty">Loading…</p></Screen>;
