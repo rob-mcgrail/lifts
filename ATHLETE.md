@@ -251,9 +251,41 @@ so plainly. It buys the entire rep range. He has accepted it.
 
 **Squat frequency.** He wants to squat often and should. But three sessions of
 `4×8` is 12 hard squat sets a week, up from 3–5 — too big a jump at 44 with an
-occasionally grumpy knee. Squat every session, and vary the stimulus across the
-week rather than repeating the top set three times: one heavier day, one moderate,
-one lighter/higher-rep. Build the weekly set count up over a few weeks.
+occasionally grumpy knee. So: squat every session at three *different*
+intensities, 3 sets each (9 a week), rather than the same top set three times.
+
+### What is actually queued (2026-08-24)
+
+Three weeks, sessions 10–18, replacing the maintenance block. Reps climb one per
+set per week; every weight holds. Each session carries a 20-minute treadmill walk
+at 8% as its last item.
+
+| | A | B | C |
+|---|---|---|---|
+| Squat | 3×8–10 @ 100 | 3×8–10 @ 85 (easy) | 3×6–8 @ 105 |
+| Push | Bench 3×8–10 @ 67.5 | OHP 3×8–10 @ 40 | Incline 3×8–10 @ 60 |
+| Pull | Row 3×10–12 @ 57.5 | — | Row 3×10–12 @ 57.5 |
+| Hinge | — | Deadlift 3×5 @ 140 | — |
+| | Pull-ups ×3 | Pull-ups ×3 | Pull-ups ×3 |
+
+Deadlift **holds at 140 for the whole block** — his best lift, and the main
+spinal load next to a back that sometimes complains. It doesn't need to grow.
+
+Rest marks are part of the prescription, not decoration: 45/90 on everything
+supersetted (bench⟷row, OHP⟷pull-ups), 120/240 on deadlift, the 90/180 global on
+squats. The short rests are where the pump comes from and most of where the
+45-minute session comes from.
+
+**OHP goes up in 1kg steps, not 2.5.** The loadout reaches every 0.5kg, and a
+6% jump on a 40kg press is the single most common reason a novice press stalls.
+
+Pause squats are **not** in this block. Their job was confidence at heavy loads,
+which 105×6 solves differently, and holding load in deep flexion is the least
+kind thing available to a grumpy knee.
+
+No RDLs in week one either — floated before the back niggle was known. Revisit
+at 3×12 @ 65 on day C if three squat days plus 140kg deadlifts stay quiet for a
+fortnight.
 
 ---
 
@@ -272,8 +304,13 @@ one lighter/higher-rep. Build the weekly set count up over a few weeks.
 
 ### Still open
 
-1. **Which walking slot he'll genuinely use.** Ask about the concrete week, not
-   the intention.
+1. **Whether the post-lift treadmill walk actually happens.** It's queued as an
+   item in all nine sessions on the theory that it costs nothing to schedule —
+   already changed, already in the garage. Unproven. Check the walk dots on
+   History after week one rather than asking him whether he intends to.
+2. **Where the non-lifting walks come from.** Three lifting days gives at most
+   three walks; the school run and a weekend 6km with his wife were the plan, and
+   neither is in the app's hands. Standalone logging exists for exactly this.
 
 ## Keeping this current
 
