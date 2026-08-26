@@ -191,6 +191,18 @@ exercise selection.
 175kg, every 0.5kg step reachable; the exact plate loadout is in `src/plates.ts`
 and `GET /api/loadout`. A treadmill. Places to walk nearby.
 
+**One bar, one cage — changeovers are the real cost.** This is the constraint
+that matters most for session design and it is easy to miss. Moving between two
+barbell movements means pulling the bench in or out, resetting the safety arms,
+and changing plates. So:
+
+- **No supersets.** Pairing two barbell lifts costs a bench move, a safety-arm
+  reset and a plate change *per round* — slower than straight sets, not faster.
+  This was tried and rejected on 2026-08-26; do not propose it again.
+- **Straight sets only.** Every set of one movement, then move on.
+- Order each session to minimise changeovers, and keep the movement count low.
+  Fewer exercises is what actually buys him time, not clever pairing.
+
 **Trains alone, but with a full cage** — he can bail a rep safely. Read this
 carefully before drawing the obvious conclusion: **he had the cage the entire
 time, and still stopped trusting himself under max weights.** Safety equipment
@@ -254,11 +266,31 @@ so plainly. It buys the entire rep range. He has accepted it.
 occasionally grumpy knee. So: squat every session at three *different*
 intensities, 3 sets each (9 a week), rather than the same top set three times.
 
-### What is actually queued (2026-08-24)
+### How week 1 actually went (2026-08-26)
 
-Three weeks, sessions 10–18, replacing the maintenance block. Reps climb one per
-set per week; every weight holds. Each session carries a 20-minute treadmill walk
-at 8% as its last item.
+Sessions 10 and 11, the first real data from this block:
+
+| Movement | Target | Got | Read |
+|---|---|---|---|
+| Squat | 3×8 @ 100 | 8,8,8 | clean — earned a rep |
+| Squat | 3×8 @ 85 | 8,8,8 | clean |
+| Bench | 3×8 @ 67.5 | 8,8,8 | clean — earned a rep |
+| Deadlift | 3×5 @ 140 | 5,5,5 | clean, and holding |
+| **Row** | 3×10 @ 57.5 | 10,10,**9** | at its ceiling — repeat |
+| **OHP** | 3×8 @ 40 | 8,8,**7** | at its ceiling — repeat |
+| Pull-up | 3 sets | 3,3,3 → 5,4,3 | climbing on its own |
+
+The starting loads were well judged: four lifts clean, two landing exactly one
+rep short on the last set. Row and OHP now **repeat until every rep is owned**
+rather than climbing — that is double progression doing its job, not a stall,
+and it should be described to him that way.
+
+### What is actually queued (2026-08-26)
+
+Sessions 20–26 (weeks 1C through 3C; 10 and 11 are done). **Straight sets, no
+pairing.** Reps climb one per set per week *where the previous week was clean*;
+every weight holds. Each session carries a 20-minute treadmill walk at 8% as its
+last item.
 
 | | A | B | C |
 |---|---|---|---|
@@ -271,10 +303,9 @@ at 8% as its last item.
 Deadlift **holds at 140 for the whole block** — his best lift, and the main
 spinal load next to a back that sometimes complains. It doesn't need to grow.
 
-Rest marks are part of the prescription, not decoration: 45/90 on everything
-supersetted (bench⟷row, OHP⟷pull-ups), 120/240 on deadlift, the 90/180 global on
-squats. The short rests are where the pump comes from and most of where the
-45-minute session comes from.
+Rest: deadlift gets 120/240, everything else inherits the 90/180 global. Nothing
+is shortened — row and OHP are at their limit and need the full rest to land the
+reps they just missed.
 
 **OHP goes up in 1kg steps, not 2.5.** The loadout reaches every 0.5kg, and a
 6% jump on a 40kg press is the single most common reason a novice press stalls.
