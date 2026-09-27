@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PreToolUse hook for the Bash tool. Reads the proposed command + description
-# from stdin (Claude Code passes the tool call as JSON), asks Haiku to judge
+# from stdin (Claude Code passes the tool call as JSON), asks Sonnet to judge
 # it against .claude/unrestricted-bash-policy.md, and exits:
 #   0  → ALLOW (Claude proceeds)
 #   2  → DENY  (Claude is told to stop; reason printed to stderr)
@@ -56,6 +56,21 @@ fi
 
 policy="$(cat "$POLICY_FILE" 2>/dev/null || echo '(no policy file found — allowing all)')"
 
+# --- Advisory hints -------------------------------------------------------
+# Not every "you could do that better" is a rule. A PreToolUse hook may attach
+# `additionalContext` to a call it is NOT blocking; that text reaches the model
+# with the tool result while the command runs normally. Use this for habits,
+# never for policy — anything that should actually be stopped belongs in the
+# policy file as a deny rule.
+#
+# Hints are plain pattern matches, so they cost nothing: no model call, no
+# added latency, and they still fire on a cached verdict because they are
+# computed outside the verdict path.
+hint=""
+if printf '%s' "$command" | grep -qE '(^|[;&|(]|[[:space:]])dcrw([[:space:]]|$)'; then
+  hint="Heads up: \`dcrw\` starts a throwaway container via \`op run\`, so it asks the user for 1Password approval EVERY time — that approval is a human tapping a prompt. If you expect to run more than one command in this container, run \`dcup\` once and then use the long-running container (\`docker compose exec <service> …\`), which only needs approval at startup."
+fi
+
 # Cache key: policy fingerprint + the literal command. Description is NOT
 # included — the verdict depends on the command itself, not on Claude's prose
 # phrasing of what it's for. Including the policy fingerprint means any edit
@@ -102,17 +117,34 @@ $command
 DESCRIPTION (what Claude says it's for):
 $description
 
-Reply with EXACTLY one line. Either:
+Reply with EXACTLY one line, no preamble. Either:
   ALLOW
 or:
   DENY: <one short sentence explaining which policy rule it hits>
 
-Do not preamble. Do not explain unless denying."
+Do not explain unless denying. If you do reason before answering, or you
+reconsider, your FINAL line must still be exactly one of those two forms — it
+is the only line that counts."
 
   # --no-session-persistence: this fires on every Bash tool call, and each
   # judging subprocess would otherwise write a throwaway session to disk and
   # clutter the user's resumable-session list. Needs --print, which -p is.
-  verdict="$(printf '%s' "$prompt" | claude -p --no-session-persistence --model haiku 2>/dev/null | head -n1)"
+  #
+  # Model is sonnet, NOT haiku — don't "optimise" this back. Measured over 47
+  # representative commands (`bun run compare:guards`): sonnet median 2.8s vs
+  # haiku 6.9s, with identical verdicts on all 47. The decisive number is the
+  # spread: sonnet 1.3x max/min, haiku 3.8x with 16s+ outliers. That tail is
+  # what pushed this hook toward the harness's `timeout`, past which Claude
+  # Code DISCARDS the hook's output and runs the command anyway.
+  reply="$(printf '%s' "$prompt" | claude -p --no-session-persistence --model sonnet 2>/dev/null)"
+
+  # Take the LAST verdict line, not the first. Sonnet sometimes opens with
+  # "DENY:", reasons mid-sentence, and corrects itself to ALLOW — reading line 1
+  # acted on the discarded first thought and blocked commands the policy allows
+  # (observed on `docker compose exec web npm install`). The settled answer is
+  # the last ALLOW/DENY line; no match leaves this empty, which fails closed
+  # below exactly like an unreachable model.
+  verdict="$(printf '%s\n' "$reply" | grep -E '^[[:space:]]*(ALLOW|DENY)' | tail -n1 | sed 's/^[[:space:]]*//')"
 
   # Cache the verdict (only if non-empty — empty implies API/network failure
   # and we don't want to memoize "I couldn't reach the model").
@@ -135,7 +167,7 @@ fi
 # than to silently wave through a command the guard never actually saw.
 if [ -z "$verdict" ]; then
   {
-    echo "Blocked by unrestricted-bash-guard: empty verdict from \`claude -p\` (model: haiku)."
+    echo "Blocked by unrestricted-bash-guard: empty verdict from \`claude -p\` (model: sonnet)."
     echo "  The guard couldn't reach the model to evaluate this command — failing closed."
     echo "  Likely cause: network blip, claude CLI not on PATH, transient API failure."
     echo "  Command:  $command"
@@ -148,6 +180,14 @@ fi
 
 case "$verdict" in
   ALLOW*)
+    # Allowed. Stay silent unless there's a hint to pass along — note the
+    # absence of `permissionDecision`, which is deliberate: emitting "allow"
+    # would auto-approve the call and bypass the user's normal permission
+    # prompts. We only want to attach context, not to decide anything.
+    if [ -n "$hint" ]; then
+      printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":%s}}\n' \
+        "$(printf '%s' "$hint" | jq -Rs .)"
+    fi
     exit 0
     ;;
   DENY*)

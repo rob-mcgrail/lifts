@@ -108,7 +108,10 @@ Do not preamble. Do not explain unless flagging."
 # --no-session-persistence: this fires on every Stop, and each judging
 # subprocess would otherwise write a throwaway session to disk and clutter the
 # user's resumable-session list. Needs --print, which -p is.
-verdict="$(printf '%s' "$prompt" | claude -p --no-session-persistence --model claude-sonnet-4-6 2>/dev/null | head -n1)"
+# Model is the bare `sonnet` alias, not a pinned version, so this tracks the
+# current Sonnet the way the bash guard does rather than sitting on whatever
+# was latest when it was written.
+verdict="$(printf '%s' "$prompt" | claude -p --no-session-persistence --model sonnet 2>/dev/null | head -n1)"
 
 {
   echo "---"

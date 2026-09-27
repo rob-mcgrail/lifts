@@ -1,7 +1,7 @@
-# Unrestricted-mode bash policy
+# Bash Guardrails Policy
 
-The bash guard hook (`.claude/hooks/unrestricted-bash-guard.sh`) feeds this
-file to Sonnet for every proposed Bash tool call. Sonnet decides ALLOW or DENY.
+The guardrails extension feeds this file to a cheap model for every proposed
+Bash tool call. The model decides ALLOW or DENY.
 
 ## Default
 
@@ -10,18 +10,25 @@ agent may operate outside the current working directory (other repos under
 `~/workspace/`, `/tmp/`, etc.) as long as the action is normal dev work. **When
 in doubt, allow** — the user is watching, and false denies interrupt flow.
 
+**This policy only restricts MUTATING actions.** Read-only commands (`cat`,
+`head`, `tail`, `less`, `more`, `ls`, `find`, `grep`, `rg`, `file`, `stat`,
+`readlink`, `tree`, `du`, `df`, `which`, `whereis`, `echo`, `type`, etc.)
+are ALWAYS ALLOWED regardless of which directory they target (`/opt/`, `/etc/`,
+`/usr/`, `/Library/`, etc.). Reading files outside the workspace is NOT a
+policy violation. Only block reads if they target secret-bearing files
+(see the exfiltration section below).
+
 ## Always deny
 
 ### Host-level package installs / upgrades
 Anything that mutates `/opt/homebrew/`, `/usr/local/`, system package state.
 - `brew install`, `brew upgrade`, `brew uninstall`, `brew link`, `brew tap`, `brew reinstall`
 - `apt`, `apt-get`, `yum`, `dnf`, `port`, `mas`
-- Any command that ends up writing to `/etc/`, `/opt/`, `/usr/`, `/Library/`, `/System/`
+- Any command that ends up WRITING to `/etc/`, `/opt/`, `/usr/`, `/Library/`, `/System/`
 
 ### Language package managers running on the host
-Containerize them. Run via Docker (`_compose`, `docker compose`, `docker run`,
-`dcrw`, `dcup`, etc.) instead. Specifically denied on the host:
-- `npm install` / `npm i` / `npm ci` / `npm run` / `npm exec`, `npx <anything>`
+Containerize them. Run via Docker instead. Specifically denied on the host:
+- `npm install` / `npm i` / `npm ci`, `npx <anything>`
 - `yarn`, `yarn install`, `yarn add`
 - `pnpm`, `pnpm install`, `pnpm add`
 - `bun install`, `bun add`, `bun create`, `bun pm`, `bunx <anything>`
@@ -29,25 +36,15 @@ Containerize them. Run via Docker (`_compose`, `docker compose`, `docker run`,
 - `pip install`, `pip3 install`, `poetry install`, `uv add`, `pipx install`
 - `cargo install`, `go install`, `go get`
 
+If you see this sort of violation, say "use docker or _compose instead".
+
 (`bun test` / `bun run <script>` / `deno test` / `bunx tsc --noEmit` are NOT
 package-manager installs — they run code already in the repo. Allowed.)
 
-**Running any of those package managers INSIDE a container is the prescribed
-alternative, not a violation — ALLOW it.** The wrapper decides, not the inner
-command. All of these are fine:
-- `docker compose exec web npm install`, `docker compose run --rm web yarn add x`
-- `dcrw bundle install`, `_compose exec web bundle install`, `dcup`
-- `docker run --rm -v "$PWD":/app -w /app node:20 npm ci`
-
-If the command begins with a docker/compose wrapper (`docker`, `docker compose`,
-`docker run`, `_compose`, `dcrw`, `dcup`, ...), the host package-manager rule
-above does not apply. Do not reason about lockfiles, `package.json`, or the host
-filesystem to talk yourself back into a denial — a containerised install is
-exactly what this rule is asking the agent to do.
-
 ### SSH / SCP / remote shells
 - `ssh`, `scp`, `sftp`, `rsync` over ssh, `mosh`, `telnet`
-- These aren't needed for local dev. If Claude wants one, something is off.
+- These aren't needed for local dev. If one is requested, something is off.
+- Tell them to ask the user to perform the action manually.
 
 ### Git operations that destroy remote / unrecoverable state
 Local-only operations (resets, branch deletes, filter-branch) are recoverable
@@ -55,7 +52,7 @@ via reflog until they're pushed — those are fine. The deny list is for things
 that lose work that can't be recovered:
 - `git push --force` / `git push -f` to any branch
 - `git push --force-with-lease` to `main`, `master`, or `deploy-production`
-- `git reflog expire --expire=now` / `git reflog expire --expire=all` (kills the local safety net that makes resets recoverable)
+- `git reflog expire --expire=now` / `git reflog expire --expire=all`
 - `git gc --prune=now --aggressive` followed by anything that depends on the dropped objects
 
 Pushes to main and deploy branches (including `deploy-production`) are allowed
@@ -75,14 +72,17 @@ destructively overwrite the remote.
 ### Actions outside the legitimate local workspace
 - `sudo <anything>`
 - Writes / `rm` targeting `~/` directly (e.g. `rm -rf ~`, `> ~/.bashrc`)
-- Writes to `/`, `/etc/`, `/Library/`, `/System/`, `/opt/`, `/usr/`
-- Allowed agent-owned paths under `~/`: `~/.haunt/`, `~/.claude/`,
-  `~/workspace/`, `~/.config/<this-tool>/` — these are normal dev state.
+- Mutating actions (writes, deletes, creates, moves, chmod, chown, etc.) in
+  `/`, `/etc/`, `/Library/`, `/System/`, `/opt/`, `/usr/`
+- **Non-mutating actions in those directories are allowed** — `ls`, `find`,
+  `grep`, `rg`, `cat`, `head`, `tail`, `file`, `stat`, `readlink`, `tree`,
+  `du`, etc. are fine in `/opt/`, `/etc/`, `/usr/`, etc. as long as they are
+  not reading secret-bearing files (see the exfiltration section below).
+- Allowed agent-owned paths under `~/`: `~/.pi/`, `~/.config/`,
+  `~/workspace/` — these are normal dev state.
 
 ### Modifying installed dependencies (supply-chain)
-The agent shouldn't be hand-patching files inside dependency trees — that's
-a classic vector for a malicious dep replacement to ride along into a
-commit. Lockfiles + package.json edits are the legitimate way.
+The agent shouldn't be hand-patching files inside dependency trees.
 - `sed`, `perl`, `awk`, `>`, `>>`, `tee`, `patch`, or any other in-place edit
   of files under `node_modules/`, `vendor/`, `.venv/`, `venv/`, `__pypackages__/`,
   `target/`, `Pods/`, `.bundle/`, `gems/`, or any path containing
@@ -91,67 +91,56 @@ commit. Lockfiles + package.json edits are the legitimate way.
 - (Listing or reading files in those trees is fine.)
 
 ### Global git config pointing at arbitrary scripts
-Setting `git config --global` for any hook-shaped key (anything that runs
-when git operates) to a path outside the current repo, or to `/tmp/...`,
-or to a downloaded/staged script. These keys all turn future git commands
-into trojans:
+Setting `git config --global` for any hook-shaped key to a path outside the
+current repo, or to `/tmp/...`, or to a downloaded/staged script:
 - `core.fsmonitor`, `core.hooksPath`, `core.editor`, `core.pager`,
   `core.sshCommand`, `core.gitProxy`, `gpg.program`, `credential.helper`,
   `diff.external`, `merge.tool`, `filter.*.clean`, `filter.*.smudge`,
   `init.templateDir`, `alias.*` mapping to `!<external script>`.
 
-Repo-local `git config` (no `--global`) into the same keys is also denied
-when the value points at `/tmp/`, `~/Downloads/`, or any path outside the
-working repo.
-
 ### Possible prompt-injection / secret exfiltration
-Block anything that *prints*, *encodes*, or *exfiltrates* a secret-bearing file:
+Block anything that *prints*, *encodes*, or *exfiltrates* a secret-bearing file.
+Note: reading non-secret files in system directories (`/opt/`, `/etc/`, `/usr/`)
+is normal and allowed — only block when the target is a secret-bearing path
+or the pattern looks like credential/theft reconnaissance:
 - `cat`, `head`, `tail`, `less`, `more`, `od`, `xxd`, `base64`, `hexdump` on:
   - `~/.ssh/`, `~/.aws/`, `~/.gnupg/`, `~/.netrc`, `~/.kube/config`
   - `.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa*`, `id_ed25519*`
 - `op read`, `op item get` only when items are being printed to stdout, exfiltrated, or not obviously required for the task (using `op read` to import into environment variables, e.g. `export FOO=$(op read ...)`, is allowed)
 - `gh auth token` (prints token to stdout)
-- `op whoami`, `op account list`, `op account get`, `op signin` — probing or
-  establishing 1Password auth state. These pop an interactive unlock, block on
-  it until it times out, and tell the agent nothing it can act on. The right move
-  is to run the command that needs the secret and let it fail if auth is missing.
-  Deny **every** command in this group with exactly this reason, verbatim, with
-  no rewording and no mention of the rule name:
-  > use op run --env-file=.env.secrets -- <cmd> instead of probing 1Password auth state
-
-  (`op run ...` and `export FOO=$(op read ...)` remain ALLOWED — it is only the
-  auth-state probes that are denied.)
 - `env | grep -i 'token\|key\|secret\|password\|api'`
 - `curl -d "@<path-to-secret>"` or `--data-binary @<secret>`
 - Any command piping a secret-bearing file to a remote URL or netcat
-- `cat .env* | nc`, `cat .env* | curl ... -d @-`, etc.
 
 **Command substitution is not suspicious by itself.** `$(git log -1 --pretty=%s)`,
 backticked subshells, `$(date)`, `$(jq ...)` — these are normal dev patterns
 and should ALLOW. Only flag command substitution when the *inner command* is
-itself on the deny list (e.g. `$(gh auth token)` piped anywhere, `$(cat .env*)`,
-or obvious obfuscation like `eval $(... | base64 -d)`).
+itself on the deny list.
 
 ## Always allow (the agent's normal toolkit)
 
-- `git add`, `git commit`, `git status`, `git diff`, `git log`, `git show`, `git checkout`, `git branch` (without `-D` of protected branches), `git fetch`, `git pull`, `git push` (without `--force`), `git stash`, `git rebase`, `git merge`, `git cherry-pick`, `git reset` (including `--hard <ref>` — local-only, recoverable via reflog)
-- `bun test`, `bun run <script>`, `bun build`, `bunx tsc --noEmit`, `deno test`, `deno compile` (when run via the project's build script)
-- `gh pr ...`, `gh run ...`, `gh repo view`, `gh issue ...` (read or non-destructive write)
-- `_compose`, `docker compose`, `docker`, `docker run`, `dcup`, `dcdn`, `dclogs`, `dcbuild`, `dcrestart`, `dcrw`
-- `roadmap` and its subcommands
-- Package managers **inside a container**: `docker compose exec|run <svc> <npm|yarn|pnpm|bun|pip|bundle|gem|cargo> ...`, `dcrw ...`, `_compose ...` — the containerised form of an otherwise-denied install
-- `op run --env-file=.env.secrets -- <inner cmd>` (the inner command is judged separately, not the wrapper)
+- `git add`, `git commit`, `git status`, `git diff`, `git log`, `git show`,
+  `git checkout`, `git branch` (without `-D` of protected branches),
+  `git fetch`, `git pull`, `git push` (without `--force`),
+  `git stash`, `git rebase`, `git merge`, `git cherry-pick`,
+  `git reset` (including `--hard <ref>` — local-only, recoverable via reflog)
+- `bun test`, `bun run <script>`, `bun build`, `bunx tsc --noEmit`,
+  `deno test`, `deno compile`
+- `gh pr ...`, `gh run ...`, `gh repo view`, `gh issue ...`
+- `docker compose`, `docker`, `docker run`
+- `op run --env-file=.env.secrets -- <inner cmd>` (inner command judged separately)
 - `export ...=$(op read ...)` — importing secrets from 1Password into environment variables
 - `rm -rf` of `dist/`, `node_modules/`, `.bun/`, `*.log`, anything under `/tmp/`
 - `mkdir`, `cp`, `mv`, `ln -s` within the repo or under `~/workspace/`
-- `ls`, `find`, `grep`, `rg`, `cat`/`head`/`tail` on anything not in the secret list
-- `curl`/`wget` GETs against public APIs and `localhost:*` / loopback hosts (read-only verbs)
+- `ls`, `find`, `grep`, `rg`, `cat`/`head`/`tail` on anything not in the secret list,
+  including read-only access to system directories (`/opt/`, `/etc/`, `/usr/`, etc.)
+- `curl`/`wget` GETs against public APIs and `localhost:*` / loopback hosts
 - `kill <pid>` / `pkill` of processes spawned during this run
 - `ps`, `lsof`, `netstat`, `which`, `whereis`, `file`, `stat`, `du`, `df`
+- most `curl` commands are fine, only deny curl if it looks like it's exfiltrating a secret.
 
 ## How to judge
 
 Match the proposed command against the deny rules first. If anything matches,
 DENY with one short sentence naming the rule. Otherwise ALLOW. Don't be clever
-about second-order reasoning ("could this hypothetically be misused…") —
-that's how false denies happen.
+about second-order reasoning — that's how false denies happen.
