@@ -22,6 +22,9 @@
      would quietly tie the two meanings together. */
   --mustard: #e3a92c;
   --mustard-ink: #2a1e02;
+  /* Belly, on the body chart next to bodyweight in --accent. Its own colour so
+     it can't be mistaken for a walk (blue) or a miss (red). */
+  --belly: #c084fc;
   --radius: 14px;
   --tap: 56px;
 }

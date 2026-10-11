@@ -73,8 +73,10 @@ export function MeasureSheet({ onClose }: { onClose: () => void }) {
           <span>kg</span>
         </label>
 
-        <div className="field">
-          <span style={{ minWidth: 80 }}>Belly</span>
+        {/* Readings get their own row: three values around 100cm don't fit
+            beside a label at phone width. */}
+        <div className="muted small" style={{ marginBottom: 6 }}>Belly · three readings, cm</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }} className="field">
           {belly.map((v, i) => (
             <input
               key={i}
@@ -86,10 +88,9 @@ export function MeasureSheet({ onClose }: { onClose: () => void }) {
               placeholder={i === 0 && last?.belly_cm != null ? String(last.belly_cm) : ""}
               value={v}
               onChange={(e) => setBelly(belly.map((b, j) => (j === i ? e.target.value : b)))}
-              style={{ minWidth: 0 }}
+              style={{ minWidth: 0, textAlign: "center" }}
             />
           ))}
-          <span>cm</span>
         </div>
         <p className="muted small" style={{ marginTop: -8 }}>
           {cm !== undefined

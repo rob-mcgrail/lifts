@@ -137,7 +137,6 @@ export default function Today() {
       <button className="btn" onClick={() => start(s.id)} disabled={busy}>
         {busy ? "Starting…" : "Start session"}
       </button>
-      {data.queued > 1 && <p className="muted small" style={{ textAlign: "center" }}>{data.queued - 1} more queued</p>}
 
       {walkControls}
       <div style={{ height: 20 }} />

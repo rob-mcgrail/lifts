@@ -211,8 +211,13 @@ neither is refused. No goal weight, no trend target — the no-programme-engine
 rule applies here too.
 
 The sheet shows last week's numbers as **placeholders, not values**, so saving
-without typing can't silently record last week again as a flat week. The charts
-space points by real time, not by index, so a missed month doesn't draw as one
+without typing can't silently record last week again as a flat week. Both are drawn on
+one chart with two axes (kg left, cm right) and one shared 20-unit span.
+Fixed frames — bodyweight 75–95kg, belly 90–110cm, his realistic ranges — so
+height means "where in that range", not just direction. The equal spans make 1kg
+and 1cm draw the same slope. Frames only grow if a reading leaves them, and grow
+together so that stays true. Points are spaced
+by real time, not by index, so a missed month doesn't draw as one
 steep week. Belly is entered as three tape readings and the sheet saves their
 average; only the average is stored, and it's all three or none, so every week's
 number means the same thing. `body:` is the Progress view's sentinel — safe because exercise
