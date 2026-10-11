@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
 import { api, fmtWeight } from "../api";
+import { BodyView } from "./Body";
 import { Screen } from "./Screen";
 
 type Point = { date: string; weight: number; target_reps: number; reps: (number | null)[]; est_1rm: number };
+
+/** Not an exercise slug — selects the bodyweight/belly view. Slugs can't contain a colon. */
+const BODY = "body:";
 
 type Best = {
   slug: string;
@@ -31,7 +35,7 @@ export default function Progress() {
   const best = bests.find((b) => b.slug === slug);
 
   useEffect(() => {
-    if (!slug) return;
+    if (!slug || slug === BODY) return;
     setData(null);
     api.progress(slug).then(setData).catch(() => setData([]));
   }, [slug]);
@@ -39,6 +43,13 @@ export default function Progress() {
   return (
     <Screen title="Progress">
       <div className="card" style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: 12 }}>
+        <button
+          className={`pill${slug === BODY ? " up" : ""}`}
+          style={{ cursor: "pointer", background: "none" }}
+          onClick={() => setSlug(BODY)}
+        >
+          Body
+        </button>
         {exercises.map((e) => (
           <button
             key={e.slug}
@@ -51,59 +62,65 @@ export default function Progress() {
         ))}
       </div>
 
-      {best && (
-        <div className="card row">
-          <div>
-            <div className="muted small">Personal best</div>
-            <div className="weight" style={{ fontSize: 24 }}>
-              {best.reps} × {fmtWeight(best.weight)}<span>kg</span>
-            </div>
-          </div>
-          <div style={{ textAlign: "right" }}>
-            {/* The comparison the pig is based on: every set is scored by its
-                estimated one-rep max, so a heavy single and a light set of ten
-                are directly comparable. */}
-            <div className="pb-e1rm">
-              <span className="pb">🐷</span> {fmtWeight(best.e1rm)}kg
-            </div>
-            <div className="muted small">
-              e1RM · {best.source === "baseline" ? "before lifts" : (best.date ?? "").slice(0, 10)}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {!data ? (
-        <p className="empty">Loading…</p>
-      ) : data.length === 0 ? (
-        <p className="empty">No completed sessions for this movement yet.</p>
+      {slug === BODY ? (
+        <BodyView />
       ) : (
         <>
-          <Chart points={data} />
-          <div className="card">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th className="num">Weight</th>
-                  <th className="num">Reps</th>
-                  <th className="num">e1RM</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...data].reverse().map((p, i) => (
-                  <tr key={i}>
-                    <td>{p.date.slice(0, 10)}</td>
-                    <td className="num">{fmtWeight(p.weight)}kg</td>
-                    <td className="num" style={{ letterSpacing: "0.06em" }}>
-                      {p.reps.map((r) => (r === null ? "–" : r)).join(" ")}
-                    </td>
-                    <td className="num muted">{fmtWeight(p.est_1rm)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {best && (
+            <div className="card row">
+              <div>
+                <div className="muted small">Personal best</div>
+                <div className="weight" style={{ fontSize: 24 }}>
+                  {best.reps} × {fmtWeight(best.weight)}<span>kg</span>
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                {/* The comparison the pig is based on: every set is scored by its
+                    estimated one-rep max, so a heavy single and a light set of ten
+                    are directly comparable. */}
+                <div className="pb-e1rm">
+                  <span className="pb">🐷</span> {fmtWeight(best.e1rm)}kg
+                </div>
+                <div className="muted small">
+                  e1RM · {best.source === "baseline" ? "before lifts" : (best.date ?? "").slice(0, 10)}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!data ? (
+            <p className="empty">Loading…</p>
+          ) : data.length === 0 ? (
+            <p className="empty">No completed sessions for this movement yet.</p>
+          ) : (
+            <>
+              <Chart points={data} />
+              <div className="card">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th className="num">Weight</th>
+                      <th className="num">Reps</th>
+                      <th className="num">e1RM</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...data].reverse().map((p, i) => (
+                      <tr key={i}>
+                        <td>{p.date.slice(0, 10)}</td>
+                        <td className="num">{fmtWeight(p.weight)}kg</td>
+                        <td className="num" style={{ letterSpacing: "0.06em" }}>
+                          {p.reps.map((r) => (r === null ? "–" : r)).join(" ")}
+                        </td>
+                        <td className="num muted">{fmtWeight(p.est_1rm)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </>
       )}
       <div style={{ height: 20 }} />

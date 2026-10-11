@@ -201,6 +201,23 @@ a dimmer green: a walk isn't a half-finished session, and the strip exists to
 show whether *both* habits are running. Green means lifted, blue means walked,
 green ringed in blue means both.
 
+## Body measurements
+
+Bodyweight and belly circumference, logged about weekly from a "Weigh in" sheet
+on Today, charted under the **Body** pill on Progress. Own `measurements` table,
+for the same reason walks have one: no reps, no target, nothing for `e1rm()` or
+the plate solver. Either number may be missing on a given row; a row with
+neither is refused. No goal weight, no trend target — the no-programme-engine
+rule applies here too.
+
+The sheet shows last week's numbers as **placeholders, not values**, so saving
+without typing can't silently record last week again as a flat week. The charts
+space points by real time, not by index, so a missed month doesn't draw as one
+steep week. Belly is entered as three tape readings and the sheet saves their
+average; only the average is stored, and it's all three or none, so every week's
+number means the same thing. `body:` is the Progress view's sentinel — safe because exercise
+slugs are normalised to `[a-z0-9-]`.
+
 ## Serving
 
 Production and development take different paths on purpose:
@@ -300,6 +317,10 @@ markdown needs that blank line — use the `join()` helper, which only drops
 | POST | `/api/walks` | log a standalone walk |
 | PATCH | `/api/walks/:id` | correct a walk |
 | DELETE | `/api/walks/:id` | remove a walk |
+| GET | `/api/measurements?from=&to=&limit=` | bodyweight + belly, newest first |
+| POST | `/api/measurements` | log one |
+| PATCH | `/api/measurements/:id` | correct one |
+| DELETE | `/api/measurements/:id` | remove one |
 | GET | `/api/context` | everything a planner needs in one call |
 
 `GET /api/context` exists specifically so a model can read loadout, exercises,

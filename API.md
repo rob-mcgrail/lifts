@@ -413,6 +413,36 @@ programme engine for lifting and it is not getting one for walking.
 
 ---
 
+## Body measurements
+
+Bodyweight and belly circumference, logged by the human about once a week from
+the Today screen. Like a walk, a measurement is **not** a set: it never reaches
+the plate solver, `e1rm()`, personal bests or session volume.
+
+```bash
+curl -s "$LIFTS/api/measurements?format=md"          # newest first; from=&to=&limit=
+curl -s -X POST "$LIFTS/api/measurements" \
+  -H 'Content-Type: application/json' \
+  -d '{ "bodyweight_kg": 83.2, "belly_cm": 91.5 }'
+```
+
+- Units are fixed: `bodyweight_kg` in kilograms (30–250), `belly_cm` in
+  centimetres (40–200). The ranges exist to catch a wrong unit, not to judge.
+- Either number may be sent alone; a measurement with neither is rejected.
+- In the app, `belly_cm` is the average of three tape readings. Only the average
+  is stored. If you ever log one by hand, send the averaged number.
+- Pass `measured_at` to backfill one taken on another day.
+- `PATCH /api/measurements/:id` changes only the fields it names. `null` clears
+  one number, but clearing both is refused — delete the row instead.
+
+The last 12 ride along on `GET /api/context`. Read them as context for planning
+(bodyweight is what makes a bodyweight-movement rep count, and what `× bw`
+comparisons in `ATHLETE.md` are against) — but don't log one yourself. The
+numbers come off a scale and a tape measure, and there is deliberately no goal
+weight or trend target anywhere in the app.
+
+---
+
 ## Reading what happened
 
 ### Recent sessions
@@ -504,6 +534,10 @@ Reads accept `?format=md`.
 | POST | `/api/walks` | Log a standalone walk. |
 | PATCH | `/api/walks/:id` | Correct or re-time a walk. |
 | DELETE | `/api/walks/:id` | Remove a walk. |
+| GET | `/api/measurements?from=&to=&limit=` | Bodyweight and belly, newest first. |
+| POST | `/api/measurements` | Log a measurement (the human does this). |
+| PATCH | `/api/measurements/:id` | Correct one. |
+| DELETE | `/api/measurements/:id` | Remove one. |
 
 ### Session lifecycle
 

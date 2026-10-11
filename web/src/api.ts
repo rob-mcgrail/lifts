@@ -92,6 +92,15 @@ export type SessionState = {
   walks: { id: number; minutes: number | null; km: number | null; done: boolean }[];
 };
 
+/** Bodyweight and belly, about weekly. Either may be missing on a given day. */
+export type Measurement = {
+  id: number;
+  measured_at: string;
+  bodyweight_kg: number | null;
+  belly_cm: number | null;
+  note: string | null;
+};
+
 export type Loadout = {
   bar: number;
   plates: { weight: number; perSide: number }[];
@@ -144,6 +153,11 @@ export const api = {
     req<Walk>("/walks", { method: "POST", body: JSON.stringify(w) }),
 
   deleteWalk: (id: number) => req<{ ok: true }>(`/walks/${id}`, { method: "DELETE" }),
+
+  measurements: (limit = 200) => req<Measurement[]>(`/measurements?limit=${limit}`),
+  logMeasurement: (m: { bodyweight_kg?: number; belly_cm?: number; note?: string }) =>
+    req<Measurement>("/measurements", { method: "POST", body: JSON.stringify(m) }),
+  deleteMeasurement: (id: number) => req<{ ok: true }>(`/measurements/${id}`, { method: "DELETE" }),
 
   settings: () => req<Record<string, string>>("/settings"),
   bests: () =>

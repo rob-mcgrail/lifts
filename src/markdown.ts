@@ -7,7 +7,7 @@
 //
 // Every renderer here is presentation only — no reads, no business logic.
 
-import type { Best, LoggedSet, Session, SessionExerciseDetail, Walk, WalkSummary } from "./db";
+import type { Best, LoggedSet, Measurement, Session, SessionExerciseDetail, Walk, WalkSummary } from "./db";
 import type { PlateSolution } from "./plates";
 
 type Cell = string | number | null | undefined;
@@ -316,6 +316,25 @@ export function walks(data: { summary: WalkSummary; walks: Walk[] }): string {
   ].join("\n");
 }
 
+// --- body measurements ---
+
+export function measurements(rows: Measurement[]): string {
+  return [
+    "# Body measurements",
+    "",
+    table(
+      ["Date", "ID", "Bodyweight", "Belly", "Note"],
+      rows.map((m) => [
+        day(m.measured_at),
+        m.id,
+        m.bodyweight_kg === null ? "—" : kg(m.bodyweight_kg),
+        m.belly_cm === null ? "—" : `${m.belly_cm}cm`,
+        m.note ?? "",
+      ]),
+    ),
+  ].join("\n");
+}
+
 /** Everything a planner needs, in one document. */
 export function context(data: {
   loadout: Parameters<typeof loadout>[0];
@@ -324,6 +343,7 @@ export function context(data: {
   recent: Record<string, { date: string; weight: number; reps: (number | null)[] }[]>;
   history: (DecoratedSession & { volume: number })[];
   walks: WalkSummary;
+  measurements: Measurement[];
 }): string {
   const recentRows: Cell[][] = [];
   for (const [slug, entries] of Object.entries(data.recent)) {
@@ -349,5 +369,7 @@ export function context(data: {
     history(data.history),
     "",
     walks({ summary: data.walks, walks: data.walks.recent }),
+    "",
+    measurements(data.measurements),
   ].join("\n");
 }

@@ -592,6 +592,101 @@ app.delete("/api/walks/:id", (c) => {
   return c.json({ ok: true });
 });
 
+// --- body measurements ---
+//
+// Bodyweight and belly circumference, about once a week. Not a session and not
+// a set: recorded, listed, charted, and nothing else reads them.
+
+type ParsedMeasurement =
+  | { ok: true; bodyweight_kg?: number | null; belly_cm?: number | null; note?: string | null; measured_at?: string }
+  | { ok: false; error: string };
+
+/**
+ * Ranges are wide on purpose but not open: they exist to catch the wrong unit —
+ * a belly in inches, a weight in grams — not to judge the number.
+ * `undefined` = not sent, `null` = explicitly cleared (PATCH only).
+ */
+function parseMeasurement(body: Record<string, unknown>): ParsedMeasurement {
+  const num = (key: string, min: number, max: number): number | null | undefined | false => {
+    if (body[key] === undefined) return undefined;
+    if (body[key] === null) return null;
+    const n = Number(body[key]);
+    return Number.isFinite(n) && n >= min && n <= max ? Math.round(n * 10) / 10 : false;
+  };
+  const bodyweight_kg = num("bodyweight_kg", 30, 250);
+  if (bodyweight_kg === false) return { ok: false, error: "bodyweight_kg must be 30-250 (kilograms)" };
+  const belly_cm = num("belly_cm", 40, 200);
+  if (belly_cm === false) return { ok: false, error: "belly_cm must be 40-200 (centimetres)" };
+  if (body.note !== undefined && body.note !== null && typeof body.note !== "string") {
+    return { ok: false, error: "note must be a string" };
+  }
+  if (body.measured_at !== undefined && typeof body.measured_at !== "string") {
+    return { ok: false, error: "measured_at must be a string" };
+  }
+  return {
+    ok: true,
+    bodyweight_kg,
+    belly_cm,
+    note: body.note as string | null | undefined,
+    measured_at: body.measured_at as string | undefined,
+  };
+}
+
+app.get("/api/measurements", (c) =>
+  respond(
+    c,
+    db.listMeasurements({
+      from: c.req.query("from") ?? undefined,
+      to: c.req.query("to") ?? undefined,
+      limit: Number(c.req.query("limit")) || undefined,
+    }),
+    md.measurements,
+  ),
+);
+
+app.post("/api/measurements", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const m = parseMeasurement(body);
+  if (!m.ok) return c.json({ error: m.error }, 400);
+  if (m.bodyweight_kg == null && m.belly_cm == null) {
+    return c.json({ error: "a measurement needs bodyweight_kg or belly_cm" }, 400);
+  }
+  return c.json(
+    db.logMeasurement({
+      bodyweight_kg: m.bodyweight_kg ?? undefined,
+      belly_cm: m.belly_cm ?? undefined,
+      note: m.note ?? undefined,
+      measured_at: m.measured_at,
+    }),
+    201,
+  );
+});
+
+app.patch("/api/measurements/:id", async (c) => {
+  const id = intParam(c, "id");
+  if (id === null) return c.json({ error: "Bad id" }, 400);
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const m = parseMeasurement(body);
+  if (!m.ok) return c.json({ error: m.error }, 400);
+  const existing = db.getMeasurement(id);
+  if (!existing) return c.json({ error: "Not found" }, 404);
+  // Clearing one number is fine; clearing both would leave a row that records
+  // nothing. Delete it instead.
+  const weight = m.bodyweight_kg === undefined ? existing.bodyweight_kg : m.bodyweight_kg;
+  const belly = m.belly_cm === undefined ? existing.belly_cm : m.belly_cm;
+  if (weight === null && belly === null) {
+    return c.json({ error: "a measurement needs bodyweight_kg or belly_cm — delete it instead" }, 400);
+  }
+  return c.json(db.updateMeasurement(id, m));
+});
+
+app.delete("/api/measurements/:id", (c) => {
+  const id = intParam(c, "id");
+  if (id === null) return c.json({ error: "Bad id" }, 400);
+  if (!db.deleteMeasurement(id)) return c.json({ error: "Not found" }, 404);
+  return c.json({ ok: true });
+});
+
 // --- sets ---
 
 // reps: null clears back to un-attempted; 0 is a logged failure.
@@ -664,6 +759,7 @@ app.get("/api/context", (c) =>
       recent: db.recentPerExercise(5),
       history: db.listHistory(10).map((s) => ({ ...decorate(s), volume: s.volume })),
       walks: db.walkSummary(),
+      measurements: db.listMeasurements({ limit: 12 }),
     },
     md.context,
   ),

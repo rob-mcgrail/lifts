@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, fmtWeight, relDate, sessionLabel, type Today as TodayData } from "../api";
+import { MeasureSheet } from "../MeasureSheet";
 import { WalkSheet } from "../WalkSheet";
 import { Screen } from "./Screen";
 
 export default function Today() {
   const [data, setData] = useState<TodayData | null>(null);
-  const [sheet, setSheet] = useState(false);
+  const [sheet, setSheet] = useState<"walk" | "measure" | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const nav = useNavigate();
@@ -39,12 +40,21 @@ export default function Today() {
    * most walks happen on days you aren't lifting.
    */
   const walkControls = (
-    <button className="btn walk" onClick={() => setSheet(true)}>
-      Log a walk
-    </button>
+    <>
+      <button className="btn walk" onClick={() => setSheet("walk")}>
+        Log a walk
+      </button>
+      {/* Weekly, not daily, so it sits below the walk and stays quiet. */}
+      <button className="btn ghost" onClick={() => setSheet("measure")} style={{ marginTop: 8 }}>
+        Weigh in
+      </button>
+    </>
   );
 
-  const sheetEl = sheet && <WalkSheet onClose={() => setSheet(false)} />;
+  const sheetEl =
+    sheet === "walk" ? <WalkSheet onClose={() => setSheet(null)} />
+    : sheet === "measure" ? <MeasureSheet onClose={() => setSheet(null)} />
+    : null;
 
   if (err) return <Screen title="Today"><p className="err">{err}</p></Screen>;
   if (!data) return <Screen title="Today"><p className="empty">Loading…</p></Screen>;

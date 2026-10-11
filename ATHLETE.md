@@ -29,7 +29,7 @@ Do not infer detraining, inconsistency, or a beginner state from a short log.
 | Age | 44 |
 | Sex | Male |
 | Height | 5'9" (~175cm) |
-| Bodyweight | ~83kg (2026-08) |
+| Bodyweight | ~83kg (2026-08) — current trend in `GET /api/measurements` |
 
 Bodyweight trajectory:
 
@@ -352,12 +352,29 @@ fortnight.
   back to week 3's reps. No weight changes and no walk items. Load steps are
   deliberately left for week 6, after ceilings are agreed.
 
+### Answered 2026-10-11
+
+- **Load steps: go ahead.** His words: "you can start bumping up these weights
+  if you want." That licenses the double-progression steps — the smallest
+  useful jump once the top of a range is owned. It does **not** license bigger
+  jumps or a faster cadence; the failure mode hasn't gone anywhere.
+- **Provisional ceilings**, chosen by the planner on that delegation, not agreed
+  number by number: the working weight for this block stays **at or below the
+  maintenance loads he was hitting routinely in August** — squat 120, bench 80,
+  row 70, OHP 50, incline 70 (no maintenance number; set under bench). Deadlift
+  holds at 140 for the back, as before. These are loads he has already proved he
+  trusts, so nothing in the block is new territory. At the current rate of steps
+  they are months away. **When a lift gets within one step of its ceiling, ask
+  him before going past it** — don't raise a ceiling unilaterally.
+- **Queued 33–38 (weeks 6–7)** carry the first load steps. Session 32 (week 5 C)
+  was deleted from the queue on 2026-10-11, not by an agent; it wasn't recreated.
+- **Bodyweight and belly are now logged in the app**, about weekly, at
+  `GET /api/measurements`. Belly is the average of three tape readings. Read the
+  trend from there rather than from the bodyweight line at the top of this file.
+
 ### Still open
 
-1. **Hard load ceilings.** "Cap the load" has no number yet. Needed before week
-   5, which is where squat and incline take their first load step. Agree
-   ceilings with him — squat above all — rather than choosing them.
-2. **Where walks come from.** Three lifting days gives at most
+1. **Where walks come from.** Three lifting days gives at most
    three walks; the school run and a weekend 6km with his wife were the plan, and
    neither is in the app's hands. Standalone logging exists for exactly this.
 

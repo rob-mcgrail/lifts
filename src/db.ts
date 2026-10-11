@@ -99,6 +99,23 @@ db.run(`CREATE TABLE IF NOT EXISTS walks (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 )`);
 
+// Body measurements: bodyweight and belly circumference, taken about once a
+// week. Like walks, these are not sets — a bodyweight has no reps, no target and
+// nothing for e1rm() or the plate solver to say about it — so they get their own
+// table. Either number may be missing on a given day; a row with neither is
+// refused at the API, since it would record nothing.
+//
+// `measured_at` is when it was taken, not when it was typed in, so a forgotten
+// one can be backfilled onto the right day.
+db.run(`CREATE TABLE IF NOT EXISTS measurements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  measured_at TEXT NOT NULL DEFAULT (datetime('now')),
+  bodyweight_kg REAL,
+  belly_cm REAL,
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)`);
+
 db.run(`CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -119,6 +136,7 @@ db.run(`CREATE INDEX IF NOT EXISTS idx_session_exercises_session ON session_exer
 db.run(`CREATE INDEX IF NOT EXISTS idx_sets_session_exercise ON sets(session_exercise_id)`);
 db.run(`CREATE INDEX IF NOT EXISTS idx_walks_session ON walks(session_id, position)`);
 db.run(`CREATE INDEX IF NOT EXISTS idx_walks_performed ON walks(performed_at DESC)`);
+db.run(`CREATE INDEX IF NOT EXISTS idx_measurements_at ON measurements(measured_at DESC)`);
 
 // --- Types ---
 
@@ -1117,4 +1135,80 @@ export function walkSummary(): WalkSummary {
       .get()!;
 
   return { last_7_days: bounded(7), last_28_days: bounded(28), recent: listWalks({ limit: 10 }) };
+}
+
+// --- Body measurements ---
+//
+// Recorded and read back, nothing more. There is no goal weight, no trend
+// target and nothing here feeds lifting — the no-programme-engine rule applies
+// to the body as much as to the bar.
+
+export type Measurement = {
+  id: number;
+  measured_at: string;
+  bodyweight_kg: number | null;
+  belly_cm: number | null;
+  note: string | null;
+  created_at: string;
+};
+
+/** Record a measurement. Pass `measured_at` to backfill one taken on another day. */
+export function logMeasurement(input: {
+  bodyweight_kg?: number;
+  belly_cm?: number;
+  note?: string;
+  measured_at?: string;
+}): Measurement {
+  db.run(
+    `INSERT INTO measurements (measured_at, bodyweight_kg, belly_cm, note)
+     VALUES (COALESCE(?, datetime('now')), ?, ?, ?)`,
+    [input.measured_at ?? null, input.bodyweight_kg ?? null, input.belly_cm ?? null, input.note ?? null],
+  );
+  const id = db.query<{ id: number }, []>(`SELECT last_insert_rowid() AS id`).get()!.id;
+  return getMeasurement(id)!;
+}
+
+export function getMeasurement(id: number): Measurement | null {
+  return db.query<Measurement, [number]>(`SELECT * FROM measurements WHERE id = ?`).get(id) ?? null;
+}
+
+/** Newest first. */
+export function listMeasurements(opts: { from?: string; to?: string; limit?: number } = {}): Measurement[] {
+  const where: string[] = [];
+  const params: (string | number)[] = [];
+  if (opts.from) {
+    where.push("measured_at >= ?");
+    params.push(opts.from);
+  }
+  if (opts.to) {
+    where.push("measured_at <= ?");
+    params.push(opts.to);
+  }
+  params.push(Math.min(opts.limit ?? 200, 1000));
+  return db
+    .query<Measurement, (string | number)[]>(
+      `SELECT * FROM measurements ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+        ORDER BY measured_at DESC, id DESC LIMIT ?`,
+    )
+    .all(...params);
+}
+
+export function updateMeasurement(
+  id: number,
+  patch: { bodyweight_kg?: number | null; belly_cm?: number | null; note?: string | null; measured_at?: string },
+): Measurement | null {
+  if (!getMeasurement(id)) return null;
+  db.transaction(() => {
+    if (patch.bodyweight_kg !== undefined) db.run(`UPDATE measurements SET bodyweight_kg = ? WHERE id = ?`, [patch.bodyweight_kg, id]);
+    if (patch.belly_cm !== undefined) db.run(`UPDATE measurements SET belly_cm = ? WHERE id = ?`, [patch.belly_cm, id]);
+    if (patch.note !== undefined) db.run(`UPDATE measurements SET note = ? WHERE id = ?`, [patch.note, id]);
+    if (patch.measured_at !== undefined) db.run(`UPDATE measurements SET measured_at = ? WHERE id = ?`, [patch.measured_at, id]);
+  })();
+  return getMeasurement(id);
+}
+
+export function deleteMeasurement(id: number): boolean {
+  const existed = Boolean(getMeasurement(id));
+  if (existed) db.run(`DELETE FROM measurements WHERE id = ?`, [id]);
+  return existed;
 }
