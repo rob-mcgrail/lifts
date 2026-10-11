@@ -164,7 +164,7 @@ exercise selection.
 |---|---|---|
 | **Lower back pain** | Sometimes | The lumbar load is `3×5 @ 150` deadlift plus `80kg` bent-over rows. Keep deadlift volume modest and don't chase deadlift reps. Prefer chest-supported or lighter higher-rep rows for volume. **RDLs are a qualified suggestion only** — introduce light and high-rep, or prefer a knee-flexion hamstring movement instead. |
 | **One knee, occasionally** | Sometimes | Moderate loads at higher reps are generally kinder than heavy low-rep. Warm-up sets matter. Watch pause squats specifically — holding load in deep flexion is the plausible aggravator. |
-| **Shin pain** | Sometimes | Most likely walking volume, which makes it **the limiter on rebuilding the walking habit**, not a lifting issue. Ramp walking volume gradually. Incline treadmill at a lower speed is lower-impact than fast flat walking, so the recommended reintroduction is also the shin-friendly one. Worth checking how old his shoes are. |
+| **Shin pain** | Sometimes | Most likely walking volume, which makes it **the limiter on rebuilding the walking habit**, not a lifting issue. Ramp walking volume gradually. Worth checking how old his shoes are. (Incline treadmill was the shin-friendly suggestion; he hates it, so it's off the table.) |
 
 ---
 
@@ -176,8 +176,8 @@ exercise selection.
    requires 8–15 reps, shorter rests and real proximity to failure. 3×5 at 90%+
    cannot produce it.
 2. **"I want to make good use of my lifting time because it's an imposition."**
-   Sessions must be time-efficient — target ~45 minutes. Supersetting antagonist
-   pairs is the rare change that shortens the session *and* improves the pump.
+   Sessions must be time-efficient — target ~45 minutes. Fewer movements is what
+   buys the time; supersets don't work in his garage (see Constraints).
 3. **Get walking again.** He believes the walks were key to his weight
    management and is nervous without them because he is "not always perfect"
    with calories. This is about insurance, not calorie arithmetic.
@@ -219,8 +219,11 @@ have a walking problem, he has a **65-minute-block problem**. Those blocks no
 longer exist on weekdays, so trying to reschedule the same walk is why it hasn't
 come back. Break it into pieces that fit instead:
 
-- 15–20 min incline treadmill immediately after lifting — already changed,
-  already committed, near-zero scheduling cost. Highest-adherence option.
+- ~~15–20 min incline treadmill immediately after lifting.~~ **Tried and
+  rejected 2026-09-28.** It happened three times in week 1 and then stopped, and
+  in his words he "fuckin hates" the treadmill. It's the treadmill he hates, not
+  walking. Don't queue walk items in sessions, and don't suggest the treadmill
+  again.
 - Walk the school run, or park further out. The constraint becomes the habit.
 - Keep **one** real 6km with his wife at the weekend. That walk was never only
   exercise, and the weekend still has a long block.
@@ -238,8 +241,9 @@ better insurance on imperfect-calorie days, which is what he actually wants.
 2. **Progress reps before load.** Double progression in roughly 6–12: add reps to
    the top of the range, then the smallest useful jump and back to the bottom.
    Progress lands every session while the bar stays in a confident zone.
-3. **Program for the pump deliberately.** 8–15 reps, shorter rests, supersets.
-4. **Keep sessions ~45 minutes.** Superset antagonists (bench/row, OHP/pull-up).
+3. **Program for the pump deliberately.** 8–15 reps, real proximity to failure.
+4. **Keep sessions ~45 minutes.** Straight sets, few movements, ordered to
+   minimise changeovers. No supersets — see Constraints.
 5. **Exploit the 8–12 range** — his biggest untrained capacity, per the OHP miss.
 6. **Respect the niggles in exercise selection**, per the table above.
 7. **Don't add a progression engine to the app.** Planning is the agent's job,
@@ -333,13 +337,27 @@ fortnight.
   tripling the weekly set count on day one.
 - **Personal bests — leave them as they are.** Settled; don't reopen it.
 
+### Answered 2026-09-28
+
+- **The post-lift treadmill walk doesn't happen.** Three times in week 1, then
+  never. He hates the treadmill. Session walks are dropped; see Constraints.
+- **The 17–28 Sep gap was illness then a holiday.** Not the load spiral. Don't
+  read it as the failure mode, but don't resume at full reps straight after
+  being sick either: week 4 is a re-entry week at unchanged weights with reps
+  back at week-2 levels.
+- **The lifts were good.** He's happy with the A/B/C movements; keep them.
+  Weeks 1–3 took squat A/B/C and incline to the top of their rep ranges. Bench,
+  OHP and row are still earning the top of theirs.
+- **Queued sessions 27–32 (weeks 4–5).** Week 4 is a re-entry week. Week 5 goes
+  back to week 3's reps. No weight changes and no walk items. Load steps are
+  deliberately left for week 6, after ceilings are agreed.
+
 ### Still open
 
-1. **Whether the post-lift treadmill walk actually happens.** It's queued as an
-   item in all nine sessions on the theory that it costs nothing to schedule —
-   already changed, already in the garage. Unproven. Check the walk dots on
-   History after week one rather than asking him whether he intends to.
-2. **Where the non-lifting walks come from.** Three lifting days gives at most
+1. **Hard load ceilings.** "Cap the load" has no number yet. Needed before week
+   5, which is where squat and incline take their first load step. Agree
+   ceilings with him — squat above all — rather than choosing them.
+2. **Where walks come from.** Three lifting days gives at most
    three walks; the school run and a weekend 6km with his wife were the plan, and
    neither is in the app's hands. Standalone logging exists for exactly this.
 
