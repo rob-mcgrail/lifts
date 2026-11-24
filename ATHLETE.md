@@ -372,6 +372,33 @@ fortnight.
   `GET /api/measurements`. Belly is the average of three tape readings. Read the
   trend from there rather than from the bodyweight line at the top of this file.
 
+### Queued 2026-11-02
+
+- **Sessions 39–43 (weeks 8 A/B/C, 9 A/B).** Same shape and double progression.
+  Week 8 takes every squat, incline, and the easy squat to the top of their
+  ranges at held weights; bench repeats 3×9 at 69.5 after a 9,9,8. Week 9 makes
+  the next small steps (squat A 105, squat B 90) on the assumption that week 8
+  lands, and its plan notes say what to repeat if not. Nothing is near a ceiling.
+
+### Answered 2026-11-24
+
+- **10–23 Nov dropped to one session a week**, with walks and weigh-ins thinning
+  at the same time. His explanation: flu, tiredness, and missing days. Not the
+  load spiral — squats stayed clean and nothing is near a ceiling. The upper
+  body slipped (bench 10,8,7; OHP 10,7,7) because it was sitting at the top of
+  its rep ranges, where a bad fortnight shows first.
+- **The row's 12, 6 on 16 Nov was fatigue and a session cut short, not his
+  back.** Bent-over row stays. Missing third sets in that stretch are the same
+  story; don't read them as a lumbar signal.
+- **Week 9 over-reached partly by design**: it was queued two weeks ahead on
+  the assumption week 8 would land, and OHP and row asked for more reps on top
+  of unfinished work. Plan notes now spell out what to repeat if the previous
+  session didn't land.
+- **Queued 44–49 (9 C, weeks 10 A/B/C, 11 A/B).** 9 C through 10 B is a
+  re-entry week: weights held, reps back to levels already owned (bench 3×9,
+  OHP 3×8, row 3×10). 10 C resumes — squat C's first step to 110, if 9 C felt
+  recovered. Still nothing within a step of a ceiling.
+
 ### Still open
 
 1. **Where walks come from.** Three lifting days gives at most
