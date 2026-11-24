@@ -149,7 +149,15 @@ export const api = {
   walks: (limit = 60) => req<{ summary: WalkSummary; walks: Walk[] }>(`/walks?limit=${limit}`),
 
   /** Log a walk that already happened. Not a session, and never becomes one. */
-  logWalk: (w: { minutes?: number; km?: number; surface?: string; incline_pct?: number; note?: string }) =>
+  logWalk: (w: {
+    minutes?: number;
+    km?: number;
+    surface?: string;
+    incline_pct?: number;
+    note?: string;
+    /** UTC `YYYY-MM-DD HH:MM:SS`; omit for now. */
+    performed_at?: string;
+  }) =>
     req<Walk>("/walks", { method: "POST", body: JSON.stringify(w) }),
 
   deleteWalk: (id: number) => req<{ ok: true }>(`/walks/${id}`, { method: "DELETE" }),

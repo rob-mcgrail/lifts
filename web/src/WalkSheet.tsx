@@ -16,8 +16,24 @@ import { api } from "./api";
  */
 const MINUTES = [15, 20, 30, 45, 60];
 
+/**
+ * Yesterday at local noon, as the UTC `YYYY-MM-DD HH:MM:SS` SQLite stores.
+ *
+ * Noon rather than "now minus 24h" so the walk lands on yesterday's local day
+ * whatever hour it's logged — History buckets walks by local day, and a late
+ * evening log minus 24h can still be today in UTC terms or vice versa.
+ */
+function yesterdayNoon(): string {
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 12);
+  return d.toISOString().slice(0, 19).replace("T", " ");
+}
+
 export function WalkSheet({ onClose }: { onClose: () => void }) {
   const [surface, setSurface] = useState<"outdoor" | "treadmill">("outdoor");
+  // Tucked away on purpose: almost every walk is logged the day it happens, so
+  // backfilling is a quiet text toggle rather than another row of chips.
+  const [yesterday, setYesterday] = useState(false);
   const [minutes, setMinutes] = useState<number | null>(30);
   const [km, setKm] = useState("");
   const [saving, setSaving] = useState(false);
@@ -34,7 +50,12 @@ export function WalkSheet({ onClose }: { onClose: () => void }) {
     setSaving(true);
     setErr(null);
     try {
-      await api.logWalk({ surface, minutes: minutes ?? undefined, km: distance });
+      await api.logWalk({
+        surface,
+        minutes: minutes ?? undefined,
+        km: distance,
+        performed_at: yesterday ? yesterdayNoon() : undefined,
+      });
       onClose();
     } catch (e) {
       setErr((e as Error).message);
@@ -45,7 +66,7 @@ export function WalkSheet({ onClose }: { onClose: () => void }) {
   return (
     <div className="sheet-scrim" onClick={() => !saving && onClose()}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
-        <h2 style={{ margin: "0 0 4px" }}>Log a walk</h2>
+        <h2 style={{ margin: "0 0 4px" }}>{yesterday ? "Log yesterday's walk" : "Log a walk"}</h2>
         <p className="muted small" style={{ marginTop: 0 }}>
           Something you've already done. It isn't a session and won't touch the queue.
         </p>
@@ -91,6 +112,15 @@ export function WalkSheet({ onClose }: { onClose: () => void }) {
           />
           <span>km</span>
         </label>
+
+        <button
+          type="button"
+          className="day-toggle muted small"
+          onClick={() => setYesterday(!yesterday)}
+          aria-pressed={yesterday}
+        >
+          {yesterday ? <>Yesterday · <u>today?</u></> : <>Today · <u>yesterday?</u></>}
+        </button>
 
         {err && <p className="err">{err}</p>}
         {badDistance && <p className="err">Distance must be a number of kilometres.</p>}

@@ -172,7 +172,9 @@ One table holds two shapes, distinguished by `session_id`:
 
 - **NULL — standalone.** The daily walk, logged from Today after the fact via
   `POST /api/walks`. `performed_at` is stamped immediately, because you only
-  ever record one that happened.
+  ever record one that happened — unless the sheet's tucked-away "yesterday?"
+  toggle is on, which sends yesterday at *local noon* so the walk lands on the
+  right square of History's local-day strip whatever hour it's logged.
 - **Set — part of a session.** The post-lift treadmill stint, queued with the
   session and ticked off inside it like any other item. `performed_at` is NULL
   until it's done, which is the only way a walk is ever in a planned state.

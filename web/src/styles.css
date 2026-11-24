@@ -585,6 +585,20 @@ label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 5px
 .chip:active { transform: scale(0.96); }
 .chip.on { background: var(--walk-dim); border-color: var(--walk); color: var(--walk); font-weight: 650; }
 
+/* Reads as a line of text, but keeps a thumb-sized hit area. */
+.day-toggle {
+  display: block;
+  min-height: 44px;
+  margin: 4px 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.day-toggle[aria-pressed="true"] { color: var(--walk); }
+
 .field {
   display: flex;
   align-items: center;
